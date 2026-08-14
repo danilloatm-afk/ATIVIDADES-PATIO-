@@ -23,6 +23,7 @@ function renderErro(msg) {
 }
 
 function renderObrigado(titulo, nota) {
+  document.title = `Avaliação enviada · ${titulo}`;
   container.innerHTML = `
     <h2>Obrigado pela avaliação!</h2>
     <p>Sua resposta sobre "<strong>${escapeHtml(titulo)}</strong>" foi registrada.</p>
@@ -55,6 +56,7 @@ function atualizarEstrelasVisual() {
 
 // ---------- avaliação de uma atividade específica (link ?t=) ----------
 function renderFormularioAtividade(atividade) {
+  document.title = `Avaliar · ${atividade.titulo}`;
   container.innerHTML = `
     <h2>${escapeHtml(atividade.titulo)}</h2>
     <p class="muted">
@@ -145,6 +147,7 @@ async function iniciarAvaliacaoAtividade(token) {
 // usado por vários clientes em momentos diferentes — cada envio cria uma
 // linha nova, não existe estado de "já respondido" pro link em si.
 function renderFormularioSetor(setor) {
+  document.title = `Avaliar setor · ${setor.nome}`;
   container.innerHTML = `
     <h2>${escapeHtml(setor.nome)}</h2>
     <p class="muted">Avalie o atendimento deste setor</p>

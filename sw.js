@@ -7,7 +7,7 @@
 // style.css, app.js, manifest.json, ícones), aumente o CACHE_VERSION abaixo.
 // Sem isso o navegador de quem já instalou o app continua servindo os
 // arquivos antigos do cache indefinidamente.
-const CACHE_VERSION = "v9";
+const CACHE_VERSION = "v10";
 const CACHE_NAME = `op-shell-${CACHE_VERSION}`;
 
 const ARQUIVOS_PRECACHE = [
@@ -56,8 +56,12 @@ self.addEventListener("fetch", (event) => {
 
   // HTML/CSS/JS do app: tenta a rede primeiro (pra sempre pegar a versão
   // mais nova quando online), e só cai pro cache se estiver sem conexão.
+  // cache: "no-store" é essencial aqui — sem isso o fetch() de dentro do
+  // service worker pode ser respondido pelo cache HTTP comum do navegador
+  // (não o nosso CACHE_NAME), servindo uma versão desatualizada mesmo com
+  // o service worker já rodando a versão nova.
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: "no-store" })
       .then((resposta) => {
         const copia = resposta.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copia));

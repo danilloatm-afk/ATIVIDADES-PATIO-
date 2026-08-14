@@ -124,6 +124,9 @@ function renderListaSetores() {
       <span>${escapeHtml(s.nome)}</span>
       <span>
         <button class="link-btn" data-id="${s.id}" data-acao="copiar-link">copiar link de avaliação</button>
+        <a class="link-btn" data-id="${s.id}" data-acao="whatsapp-link" target="_blank" rel="noopener" href="${escapeHtml(
+        linkWhatsapp("", `Ajude o setor ${s.nome} a melhorar! Avalie nosso atendimento: ${linkAvaliacaoSetor(s.avaliacao_token)}`)
+      )}">whatsapp</a>
         <button class="link-btn" data-id="${s.id}" data-acao="toggle" data-ativo="${s.ativo ? 1 : 0}">${s.ativo ? "desativar" : "reativar"}</button>
       </span>
     </li>`
@@ -227,6 +230,10 @@ function atualizarCardQrSetor() {
   const img = document.getElementById("qr-avaliacao-setor");
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(linkAvaliacaoSetorAtual)}`;
   img.alt = `QR code para avaliar o setor ${setor.nome}`;
+  document.getElementById("btn-whatsapp-link-setor").href = linkWhatsapp(
+    "",
+    `Ajude o setor ${setor.nome} a melhorar! Avalie nosso atendimento: ${linkAvaliacaoSetorAtual}`
+  );
 }
 
 document.getElementById("btn-copiar-link-setor").addEventListener("click", async () => {

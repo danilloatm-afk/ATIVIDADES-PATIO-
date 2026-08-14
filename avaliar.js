@@ -22,11 +22,11 @@ function renderErro(msg) {
   container.innerHTML = `<div class="empty-state">${escapeHtml(msg)}</div>`;
 }
 
-function renderObrigado(atividade) {
+function renderObrigado(titulo, nota) {
   container.innerHTML = `
     <h2>Obrigado pela avaliação!</h2>
-    <p>Sua resposta sobre "<strong>${escapeHtml(atividade.titulo)}</strong>" já foi registrada.</p>
-    <p>Nota enviada: ${"★".repeat(atividade.avaliacao_nota)}${"☆".repeat(5 - atividade.avaliacao_nota)}</p>
+    <p>Sua resposta sobre "<strong>${escapeHtml(titulo)}</strong>" foi registrada.</p>
+    <p>Nota enviada: ${"★".repeat(nota)}${"☆".repeat(5 - nota)}</p>
   `;
 }
 
@@ -53,7 +53,8 @@ function atualizarEstrelasVisual() {
   });
 }
 
-function renderFormulario(atividade) {
+// ---------- avaliação de uma atividade específica (link ?t=) ----------
+function renderFormularioAtividade(atividade) {
   container.innerHTML = `
     <h2>${escapeHtml(atividade.titulo)}</h2>
     <p class="muted">
@@ -113,7 +114,7 @@ function renderFormulario(atividade) {
         })
         .eq("avaliacao_token", atividade.avaliacao_token);
       if (error) throw new Error(error.message);
-      renderObrigado({ ...atividade, avaliacao_nota: notaSelecionada });
+      renderObrigado(atividade.titulo, notaSelecionada);
     } catch (err) {
       feedback.textContent = "Erro ao enviar: " + err.message;
       feedback.className = "feedback error";
@@ -121,28 +122,97 @@ function renderFormulario(atividade) {
   });
 }
 
+async function iniciarAvaliacaoAtividade(token) {
+  const { data, error } = await db
+    .from("op_atividades")
+    .select("titulo, data_abertura, avaliacao_token, avaliacao_nota, avaliacao_resolveu, avaliacao_respondida_em, op_categorias(nome), op_funcionarios(nome)")
+    .eq("avaliacao_token", token)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) {
+    renderErro("Não encontramos essa atividade. O link pode estar incorreto ou expirado.");
+    return;
+  }
+  if (data.avaliacao_respondida_em) {
+    renderObrigado(data.titulo, data.avaliacao_nota);
+    return;
+  }
+  renderFormularioAtividade(data);
+}
+
+// ---------- avaliação geral do setor (link fixo, ?s=) ----------
+// Diferente da avaliação por atividade: este link não expira e pode ser
+// usado por vários clientes em momentos diferentes — cada envio cria uma
+// linha nova, não existe estado de "já respondido" pro link em si.
+function renderFormularioSetor(setor) {
+  container.innerHTML = `
+    <h2>${escapeHtml(setor.nome)}</h2>
+    <p class="muted">Avalie o atendimento deste setor</p>
+    <form id="form-avaliacao" class="form-card" style="padding:0; border:none;">
+      <label>
+        Como você avalia o setor de ${escapeHtml(setor.nome)}?
+        <div id="estrelas-wrap" class="estrelas-wrap"></div>
+      </label>
+      <label>
+        Comentário (opcional)
+        <textarea id="av-comentario" rows="3" placeholder="Conte como foi sua experiência"></textarea>
+      </label>
+      <button type="submit" class="btn primary">Enviar avaliação</button>
+      <p id="av-feedback" class="feedback"></p>
+    </form>
+  `;
+
+  renderEstrelasInterativas();
+
+  document.getElementById("form-avaliacao").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const feedback = document.getElementById("av-feedback");
+    feedback.className = "feedback";
+    if (!notaSelecionada) {
+      feedback.textContent = "Escolha uma nota de 1 a 5 estrelas.";
+      feedback.className = "feedback error";
+      return;
+    }
+    feedback.textContent = "Enviando...";
+    try {
+      const { error } = await db.from("op_avaliacoes_setor").insert({
+        setor_id: setor.id,
+        nota: notaSelecionada,
+        comentario: document.getElementById("av-comentario").value.trim(),
+      });
+      if (error) throw new Error(error.message);
+      renderObrigado(setor.nome, notaSelecionada);
+    } catch (err) {
+      feedback.textContent = "Erro ao enviar: " + err.message;
+      feedback.className = "feedback error";
+    }
+  });
+}
+
+async function iniciarAvaliacaoSetor(token) {
+  const { data, error } = await db.from("op_setores").select("id, nome").eq("avaliacao_token", token).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) {
+    renderErro("Não encontramos esse setor. O link pode estar incorreto.");
+    return;
+  }
+  renderFormularioSetor(data);
+}
+
 (async function init() {
-  const token = new URLSearchParams(location.search).get("t");
-  if (!token) {
+  const params = new URLSearchParams(location.search);
+  const tokenAtividade = params.get("t");
+  const tokenSetor = params.get("s");
+  if (!tokenAtividade && !tokenSetor) {
     renderErro("Link inválido: nenhum código de avaliação informado.");
     return;
   }
   try {
-    const { data, error } = await db
-      .from("op_atividades")
-      .select("titulo, data_abertura, avaliacao_token, avaliacao_nota, avaliacao_resolveu, avaliacao_respondida_em, op_categorias(nome), op_funcionarios(nome)")
-      .eq("avaliacao_token", token)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (!data) {
-      renderErro("Não encontramos essa atividade. O link pode estar incorreto ou expirado.");
-      return;
+    if (tokenSetor) {
+      await iniciarAvaliacaoSetor(tokenSetor);
+    } else {
+      await iniciarAvaliacaoAtividade(tokenAtividade);
     }
-    if (data.avaliacao_respondida_em) {
-      renderObrigado(data);
-      return;
-    }
-    renderFormulario(data);
   } catch (e) {
     renderErro("Erro ao carregar: " + e.message);
   }

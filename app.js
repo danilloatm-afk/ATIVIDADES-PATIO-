@@ -72,6 +72,10 @@ function linkAvaliacao(token) {
   return new URL(`avaliar.html?t=${token}`, location.href).href;
 }
 
+function linkAvaliacaoSetor(token) {
+  return new URL(`avaliar.html?s=${token}`, location.href).href;
+}
+
 function renderEstrelas(nota) {
   return "★".repeat(nota) + "☆".repeat(5 - nota);
 }
@@ -118,17 +122,35 @@ function renderListaSetores() {
       (s) => `
     <li class="${s.ativo ? "" : "inativo"}">
       <span>${escapeHtml(s.nome)}</span>
-      <button class="link-btn" data-id="${s.id}" data-ativo="${s.ativo ? 1 : 0}">${s.ativo ? "desativar" : "reativar"}</button>
+      <span>
+        <button class="link-btn" data-id="${s.id}" data-acao="copiar-link">copiar link de avaliação</button>
+        <button class="link-btn" data-id="${s.id}" data-acao="toggle" data-ativo="${s.ativo ? 1 : 0}">${s.ativo ? "desativar" : "reativar"}</button>
+      </span>
     </li>`
     )
     .join("");
-  ul.querySelectorAll(".link-btn").forEach((btn) => {
+  ul.querySelectorAll('[data-acao="toggle"]').forEach((btn) => {
     btn.addEventListener("click", async () => {
       const novoAtivo = btn.dataset.ativo !== "1";
       await db.from("op_setores").update({ ativo: novoAtivo }).eq("id", btn.dataset.id);
       await loadSetores();
       renderListaSetores();
       loadPainel();
+    });
+  });
+  ul.querySelectorAll('[data-acao="copiar-link"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const setor = setoresCache.find((s) => String(s.id) === String(btn.dataset.id));
+      if (!setor) return;
+      const link = linkAvaliacaoSetor(setor.avaliacao_token);
+      try {
+        await navigator.clipboard.writeText(link);
+        const textoOriginal = btn.textContent;
+        btn.textContent = "link copiado!";
+        setTimeout(() => (btn.textContent = textoOriginal), 2000);
+      } catch {
+        prompt("Copie o link de avaliação do setor:", link);
+      }
     });
   });
 }
@@ -197,8 +219,11 @@ async function loadPainel() {
     document.querySelector("#tbl-atrasadas tbody").innerHTML = "";
     document.querySelector("#tbl-carga tbody").innerHTML = "";
     document.querySelector("#tbl-categoria tbody").innerHTML = "";
+    document.getElementById("setor-avaliacao-resumo").innerHTML = "";
+    document.querySelector("#tbl-avaliacoes-setor tbody").innerHTML = "";
     return;
   }
+  loadAvaliacaoSetor();
   cards.innerHTML = '<div class="empty-state">Carregando...</div>';
   try {
     const { data, error } = await comTimeout(
@@ -269,6 +294,44 @@ async function loadPainel() {
 }
 
 document.getElementById("btn-refresh-painel").addEventListener("click", loadPainel);
+
+// Avaliação geral do setor (link fixo, diferente da avaliação por
+// atividade): cada envio é uma linha em op_avaliacoes_setor, então aqui só
+// resumimos média + lista de comentários recentes.
+async function loadAvaliacaoSetor() {
+  const resumo = document.getElementById("setor-avaliacao-resumo");
+  const tbody = document.querySelector("#tbl-avaliacoes-setor tbody");
+  try {
+    const { data, error } = await comTimeout(
+      db.from("op_avaliacoes_setor").select("*").eq("setor_id", setorSelecionadoId).order("criado_em", { ascending: false })
+    );
+    if (error) throw new Error(error.message);
+
+    const media = data.length ? data.reduce((soma, a) => soma + a.nota, 0) / data.length : null;
+    resumo.innerHTML = `
+      <div class="resumo-card">
+        <div class="resumo-num">${media ? media.toFixed(1) + " ★" : "—"}</div>
+        <div class="resumo-label">Nota média (${data.length} avalia${data.length === 1 ? "ção" : "ções"})</div>
+      </div>
+    `;
+
+    tbody.innerHTML = data.length
+      ? data
+          .slice(0, 20)
+          .map(
+            (a) => `
+        <tr>
+          <td>${formatDate(a.criado_em.slice(0, 10))}</td>
+          <td>${renderEstrelas(a.nota)}</td>
+          <td>${a.comentario ? escapeHtml(a.comentario) : '<span class="muted">—</span>'}</td>
+        </tr>`
+          )
+          .join("")
+      : '<tr><td colspan="3">Nenhuma avaliação de setor recebida ainda.</td></tr>';
+  } catch (e) {
+    resumo.innerHTML = `<div class="empty-state">Erro ao carregar: ${e.message}</div>`;
+  }
+}
 
 // Agrupa atividades por uma chave (funcionário, categoria, ...) e renderiza
 // uma tabela com contagem por status + atrasadas + total + nota média.

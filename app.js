@@ -81,6 +81,70 @@ function linkWhatsapp(numero, mensagem) {
   return `https://wa.me/${digitos}?text=${encodeURIComponent(mensagem)}`;
 }
 
+// ---------- setor selecionado (isola painel/atividades por setor) ----------
+const LS_SETOR_SELECIONADO = "op_setor_selecionado";
+let setoresCache = [];
+let setorSelecionadoId = localStorage.getItem(LS_SETOR_SELECIONADO) || "";
+
+async function loadSetores() {
+  const { data, error } = await comTimeout(db.from("op_setores").select("*").order("ativo", { ascending: false }).order("nome"));
+  if (error) throw new Error(error.message);
+  setoresCache = data;
+
+  const ativos = setoresCache.filter((s) => s.ativo);
+  if (!ativos.some((s) => String(s.id) === String(setorSelecionadoId))) {
+    setorSelecionadoId = ativos[0] ? String(ativos[0].id) : "";
+    localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
+  }
+
+  const sel = document.getElementById("setor-select");
+  sel.innerHTML = ativos.length
+    ? ativos.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("")
+    : '<option value="">Nenhum setor cadastrado</option>';
+  sel.value = setorSelecionadoId;
+}
+
+document.getElementById("setor-select").addEventListener("change", (e) => {
+  setorSelecionadoId = e.target.value;
+  localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
+  loadPainel();
+  if (document.getElementById("tab-atividades").classList.contains("active")) loadAtividades();
+});
+
+function renderListaSetores() {
+  const ul = document.getElementById("lista-setores");
+  ul.innerHTML = setoresCache
+    .map(
+      (s) => `
+    <li class="${s.ativo ? "" : "inativo"}">
+      <span>${escapeHtml(s.nome)}</span>
+      <button class="link-btn" data-id="${s.id}" data-ativo="${s.ativo ? 1 : 0}">${s.ativo ? "desativar" : "reativar"}</button>
+    </li>`
+    )
+    .join("");
+  ul.querySelectorAll(".link-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const novoAtivo = btn.dataset.ativo !== "1";
+      await db.from("op_setores").update({ ativo: novoAtivo }).eq("id", btn.dataset.id);
+      await loadSetores();
+      renderListaSetores();
+      loadPainel();
+    });
+  });
+}
+
+document.getElementById("form-setor").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nome = document.getElementById("setor-nome").value.trim();
+  if (!nome) return;
+  const { error } = await db.from("op_setores").insert({ nome });
+  if (error) return alert("Erro ao adicionar setor: " + error.message);
+  document.getElementById("setor-nome").value = "";
+  await loadSetores();
+  renderListaSetores();
+  loadPainel();
+});
+
 // ---------- tabs ----------
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -128,10 +192,21 @@ function atualizarSelectsCadastro() {
 // ---------- painel ----------
 async function loadPainel() {
   const cards = document.getElementById("resumo-cards");
+  if (!setorSelecionadoId) {
+    cards.innerHTML = '<div class="empty-state">Nenhum setor selecionado. Vá em "Configurações" para cadastrar um setor.</div>';
+    document.querySelector("#tbl-atrasadas tbody").innerHTML = "";
+    document.querySelector("#tbl-carga tbody").innerHTML = "";
+    document.querySelector("#tbl-categoria tbody").innerHTML = "";
+    return;
+  }
   cards.innerHTML = '<div class="empty-state">Carregando...</div>';
   try {
     const { data, error } = await comTimeout(
-      db.from("op_atividades").select("*, op_funcionarios(nome), op_categorias(nome)").order("prazo", { ascending: true })
+      db
+        .from("op_atividades")
+        .select("*, op_funcionarios(nome), op_categorias(nome)")
+        .eq("setor_id", setorSelecionadoId)
+        .order("prazo", { ascending: true })
     );
     if (error) throw new Error(error.message);
 
@@ -254,6 +329,12 @@ document.getElementById("form-atividade").addEventListener("submit", async (e) =
   feedback.textContent = "";
   feedback.className = "feedback";
 
+  if (!setorSelecionadoId) {
+    feedback.textContent = "Selecione um setor no topo da tela antes de registrar uma atividade.";
+    feedback.className = "feedback error";
+    return;
+  }
+
   const funcionarioId = document.getElementById("ativ-funcionario").value;
   if (!funcionarioId) {
     feedback.textContent = "Cadastre um funcionário em Configurações antes de registrar uma atividade.";
@@ -262,6 +343,7 @@ document.getElementById("form-atividade").addEventListener("submit", async (e) =
   }
 
   const payload = {
+    setor_id: Number(setorSelecionadoId),
     titulo: document.getElementById("ativ-titulo").value.trim(),
     funcionario_id: Number(funcionarioId),
     categoria_id: document.getElementById("ativ-categoria").value || null,
@@ -290,6 +372,10 @@ document.getElementById("form-atividade").addEventListener("submit", async (e) =
 // ---------- atividades ----------
 async function loadAtividades() {
   const tbody = document.querySelector("#tbl-atividades tbody");
+  if (!setorSelecionadoId) {
+    tbody.innerHTML = '<tr><td colspan="9">Nenhum setor selecionado.</td></tr>';
+    return;
+  }
   tbody.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>';
 
   const status = document.getElementById("fil-status").value;
@@ -301,6 +387,7 @@ async function loadAtividades() {
     let query = db
       .from("op_atividades")
       .select("*, op_funcionarios(nome), op_categorias(nome)")
+      .eq("setor_id", setorSelecionadoId)
       .order("status")
       .order("prazo", { ascending: true, nullsFirst: false });
     if (status) query = query.eq("status", status);
@@ -329,7 +416,7 @@ async function loadAtividades() {
         if (a.avaliacao_respondida_em) {
           avaliacao = `<div>${renderEstrelas(a.avaliacao_nota)}</div>${
             a.avaliacao_resolveu === false ? '<div class="muted">problema não resolvido</div>' : ""
-          }`;
+          }${a.avaliacao_comentario ? `<div class="muted comentario-cliente">"${escapeHtml(a.avaliacao_comentario)}"</div>` : ""}`;
         } else if (a.status === "concluido" && a.cliente_whatsapp) {
           avaliacao = `<a class="link-btn" target="_blank" rel="noopener" href="${escapeHtml(
             linkWhatsapp(
@@ -460,6 +547,8 @@ async function refreshCadastros() {
 // ---------- init ----------
 (async function init() {
   try {
+    await loadSetores();
+    renderListaSetores();
     await refreshCadastros();
   } catch (e) {
     console.warn("Erro ao carregar cadastros:", e.message);

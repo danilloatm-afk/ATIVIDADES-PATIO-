@@ -18,6 +18,10 @@
   <div class="topbar-title-row">
     <h1>📋 Painel de Operações</h1>
     <div class="topbar-actions">
+      <label class="setor-select-label">
+        Setor
+        <select id="setor-select"></select>
+      </label>
       <button id="btn-theme-toggle" type="button" class="btn secondary small theme-toggle" title="Alternar modo claro/escuro">🌙</button>
     </div>
   </div>
@@ -204,6 +208,14 @@
           <button type="submit" class="btn primary">Adicionar</button>
         </form>
         <ul id="lista-categorias" class="cadastro-lista"></ul>
+      </div>
+      <div class="form-card">
+        <h3>Setores</h3>
+        <form id="form-setor" class="inline-form">
+          <input type="text" id="setor-nome" placeholder="Nome do setor" required>
+          <button type="submit" class="btn primary">Adicionar</button>
+        </form>
+        <ul id="lista-setores" class="cadastro-lista"></ul>
       </div>
     </div>
   </section>

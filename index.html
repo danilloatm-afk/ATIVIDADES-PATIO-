@@ -14,6 +14,25 @@
 <meta name="apple-mobile-web-app-title" content="Operações">
 </head>
 <body>
+
+<!-- LOGIN -->
+<section id="tela-login" class="tela-login">
+  <form id="form-login" class="form-card login-card">
+    <h1>📋 Painel de Operações</h1>
+    <label>
+      Email
+      <input type="email" id="login-email" required autocomplete="username">
+    </label>
+    <label>
+      Senha
+      <input type="password" id="login-senha" required autocomplete="current-password">
+    </label>
+    <button type="submit" class="btn primary">Entrar</button>
+    <p id="login-feedback" class="feedback"></p>
+  </form>
+</section>
+
+<div id="app-shell" class="hidden">
 <header class="topbar">
   <div class="topbar-title-row">
     <h1>📋 Painel de Operações</h1>
@@ -23,6 +42,7 @@
         <select id="setor-select"></select>
       </label>
       <button id="btn-theme-toggle" type="button" class="btn secondary small theme-toggle" title="Alternar modo claro/escuro">🌙</button>
+      <button id="btn-logout" type="button" class="btn secondary small">Sair</button>
     </div>
   </div>
   <nav class="tabs">
@@ -222,15 +242,16 @@
     <h2>Configurações</h2>
     <div class="cadastro-grid">
       <div class="form-card">
-        <h3>Funcionários</h3>
+        <h3>Funcionários <span id="func-setor-label" class="muted"></span></h3>
         <form id="form-funcionario" class="inline-form">
           <input type="text" id="func-nome" placeholder="Nome" required>
           <input type="text" id="func-cargo" placeholder="Cargo (opcional)">
+          <select id="func-setor" class="hidden"></select>
           <button type="submit" class="btn primary">Adicionar</button>
         </form>
         <ul id="lista-funcionarios" class="cadastro-lista"></ul>
       </div>
-      <div class="form-card">
+      <div id="card-categorias" class="form-card hidden">
         <h3>Categorias</h3>
         <form id="form-categoria" class="inline-form">
           <input type="text" id="cat-nome" placeholder="Nome da categoria" required>
@@ -238,7 +259,7 @@
         </form>
         <ul id="lista-categorias" class="cadastro-lista"></ul>
       </div>
-      <div class="form-card">
+      <div id="card-setores" class="form-card hidden">
         <h3>Setores</h3>
         <form id="form-setor" class="inline-form">
           <input type="text" id="setor-nome" placeholder="Nome do setor" required>
@@ -246,10 +267,26 @@
         </form>
         <ul id="lista-setores" class="cadastro-lista"></ul>
       </div>
+      <div id="card-usuarios" class="form-card hidden">
+        <h3>Usuários</h3>
+        <p class="muted">Crie a conta em Supabase → Authentication → Users, copie o UID gerado e cole aqui pra dar acesso.</p>
+        <form id="form-usuario" class="inline-form usuario-form">
+          <input type="text" id="usu-uid" placeholder="UID do usuário (Supabase Auth)" required>
+          <input type="text" id="usu-nome" placeholder="Nome" required>
+          <select id="usu-role">
+            <option value="lider">Líder</option>
+            <option value="admin">Admin</option>
+          </select>
+          <select id="usu-setor"></select>
+          <button type="submit" class="btn primary">Adicionar</button>
+        </form>
+        <ul id="lista-usuarios" class="cadastro-lista"></ul>
+      </div>
     </div>
   </section>
 
 </main>
+</div>
 
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <script src="app.js"></script>

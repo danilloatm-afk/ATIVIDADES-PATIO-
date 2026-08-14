@@ -11,6 +11,84 @@ if ("serviceWorker" in navigator) {
 const STATUS_LABEL = { aberto: "Aberto", andamento: "Em andamento", concluido: "Concluído" };
 const PRIORIDADE_LABEL = { baixa: "Baixa", media: "Média", alta: "Alta" };
 
+// ---------- login / permissões ----------
+// Admin vê e mexe em tudo. Líder só vê/mexe no próprio setor — e isso é
+// garantido de verdade pelo RLS do Supabase (política por linha), não só
+// escondido na tela. meuPerfil vem da tabela op_perfis depois do login.
+let sessaoAtual = null;
+let meuPerfil = null;
+
+function souAdmin() {
+  return !!meuPerfil && meuPerfil.role === "admin";
+}
+
+async function carregarPerfil() {
+  const { data, error } = await db.from("op_perfis").select("*").eq("user_id", sessaoAtual.user.id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Seu usuário ainda não tem acesso liberado. Peça para o administrador te cadastrar em Configurações → Usuários.");
+  meuPerfil = data;
+}
+
+function mostrarTelaLogin() {
+  document.getElementById("app-shell").classList.add("hidden");
+  document.getElementById("tela-login").classList.remove("hidden");
+}
+
+function aplicarPermissoesUI() {
+  const admin = souAdmin();
+  document.getElementById("card-setores").classList.toggle("hidden", !admin);
+  document.getElementById("card-categorias").classList.toggle("hidden", !admin);
+  document.getElementById("card-usuarios").classList.toggle("hidden", !admin);
+  document.getElementById("func-setor").classList.toggle("hidden", !admin);
+  document.getElementById("setor-select").disabled = !admin;
+}
+
+async function mostrarApp() {
+  document.getElementById("tela-login").classList.add("hidden");
+  document.getElementById("app-shell").classList.remove("hidden");
+  aplicarPermissoesUI();
+  await iniciarDadosApp();
+}
+
+document.getElementById("form-login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const feedback = document.getElementById("login-feedback");
+  feedback.textContent = "Entrando...";
+  feedback.className = "feedback";
+  const email = document.getElementById("login-email").value.trim();
+  const senha = document.getElementById("login-senha").value;
+  const { error } = await db.auth.signInWithPassword({ email, password: senha });
+  if (error) {
+    feedback.textContent = error.message === "Invalid login credentials" ? "Email ou senha incorretos." : "Erro: " + error.message;
+    feedback.className = "feedback error";
+  } else {
+    feedback.textContent = "";
+  }
+});
+
+document.getElementById("btn-logout").addEventListener("click", async () => {
+  await db.auth.signOut();
+});
+
+db.auth.onAuthStateChange(async (_evento, sessao) => {
+  sessaoAtual = sessao;
+  if (sessaoAtual) {
+    try {
+      await carregarPerfil();
+      await mostrarApp();
+    } catch (e) {
+      const feedback = document.getElementById("login-feedback");
+      feedback.textContent = e.message;
+      feedback.className = "feedback error";
+      meuPerfil = null;
+      await db.auth.signOut();
+    }
+  } else {
+    meuPerfil = null;
+    mostrarTelaLogin();
+  }
+});
+
 // ---------- tema claro/escuro ----------
 const LS_TEMA = "op_tema";
 
@@ -91,26 +169,39 @@ let setoresCache = [];
 let setorSelecionadoId = localStorage.getItem(LS_SETOR_SELECIONADO) || "";
 
 async function loadSetores() {
+  // O RLS já filtra o que volta aqui: admin recebe todos os setores,
+  // líder recebe só o próprio (política "leitura setores logado").
   const { data, error } = await comTimeout(db.from("op_setores").select("*").order("ativo", { ascending: false }).order("nome"));
   if (error) throw new Error(error.message);
   setoresCache = data;
 
   const ativos = setoresCache.filter((s) => s.ativo);
-  if (!ativos.some((s) => String(s.id) === String(setorSelecionadoId))) {
+  if (!souAdmin()) {
+    setorSelecionadoId = meuPerfil.setor_id ? String(meuPerfil.setor_id) : "";
+  } else if (!ativos.some((s) => String(s.id) === String(setorSelecionadoId))) {
     setorSelecionadoId = ativos[0] ? String(ativos[0].id) : "";
-    localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
   }
+  localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
 
   const sel = document.getElementById("setor-select");
   sel.innerHTML = ativos.length
     ? ativos.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("")
     : '<option value="">Nenhum setor cadastrado</option>';
   sel.value = setorSelecionadoId;
+
+  const label = document.getElementById("func-setor-label");
+  if (!souAdmin()) {
+    const meuSetor = setoresCache.find((s) => String(s.id) === String(setorSelecionadoId));
+    label.textContent = meuSetor ? `— ${meuSetor.nome}` : "";
+  } else {
+    label.textContent = "";
+  }
 }
 
-document.getElementById("setor-select").addEventListener("change", (e) => {
+document.getElementById("setor-select").addEventListener("change", async (e) => {
   setorSelecionadoId = e.target.value;
   localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
+  await refreshCadastros();
   loadPainel();
   if (document.getElementById("tab-atividades").classList.contains("active")) loadAtividades();
 });
@@ -187,7 +278,13 @@ let funcionariosCache = [];
 let categoriasCache = [];
 
 async function loadFuncionarios() {
-  const { data, error } = await comTimeout(db.from("op_funcionarios").select("*").order("ativo", { ascending: false }).order("nome"));
+  if (!setorSelecionadoId) {
+    funcionariosCache = [];
+    return;
+  }
+  const { data, error } = await comTimeout(
+    db.from("op_funcionarios").select("*").eq("setor_id", setorSelecionadoId).order("ativo", { ascending: false }).order("nome")
+  );
   if (error) throw new Error(error.message);
   funcionariosCache = data;
 }
@@ -212,6 +309,15 @@ function atualizarSelectsCadastro() {
     '<option value="">Todos os responsáveis</option>' + funcionariosCache.map((f) => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join("");
   document.getElementById("fil-categoria").innerHTML =
     '<option value="">Todas as categorias</option>' + categoriasCache.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
+
+  if (souAdmin()) {
+    const ativosSetores = setoresCache.filter((s) => s.ativo);
+    const optsSetor = ativosSetores.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+    const selFuncSetor = document.getElementById("func-setor");
+    selFuncSetor.innerHTML = optsSetor;
+    selFuncSetor.value = setorSelecionadoId;
+    document.getElementById("usu-setor").innerHTML = optsSetor;
+  }
 }
 
 // ---------- QR code de avaliação do setor ----------
@@ -523,7 +629,7 @@ async function loadAtividades() {
         if (a.status === "aberto") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="iniciar">iniciar</button> `;
         if (a.status === "andamento") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="concluir">concluir</button> `;
         if (a.status === "concluido") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="reabrir">reabrir</button> `;
-        acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
+        if (souAdmin()) acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
 
         let avaliacao;
         if (a.avaliacao_respondida_em) {
@@ -592,7 +698,9 @@ document.getElementById("form-funcionario").addEventListener("submit", async (e)
   const nome = document.getElementById("func-nome").value.trim();
   const cargo = document.getElementById("func-cargo").value.trim();
   if (!nome) return;
-  const { error } = await db.from("op_funcionarios").insert({ nome, cargo });
+  const setorId = souAdmin() ? Number(document.getElementById("func-setor").value) : meuPerfil.setor_id;
+  if (!setorId) return alert("Selecione um setor.");
+  const { error } = await db.from("op_funcionarios").insert({ nome, cargo, setor_id: setorId });
   if (error) return alert("Erro ao adicionar funcionário: " + error.message);
   document.getElementById("func-nome").value = "";
   document.getElementById("func-cargo").value = "";
@@ -601,15 +709,31 @@ document.getElementById("form-funcionario").addEventListener("submit", async (e)
 
 function renderListaFuncionarios() {
   const ul = document.getElementById("lista-funcionarios");
+  const ativosSetores = setoresCache.filter((s) => s.ativo);
   ul.innerHTML = funcionariosCache
     .map(
       (f) => `
     <li class="${f.ativo ? "" : "inativo"}">
       <span>${escapeHtml(f.nome)}${f.cargo ? ` <span class="muted">· ${escapeHtml(f.cargo)}</span>` : ""}</span>
-      <button class="link-btn" data-id="${f.id}" data-ativo="${f.ativo ? 1 : 0}">${f.ativo ? "desativar" : "reativar"}</button>
+      <span>
+        ${
+          souAdmin()
+            ? `<select class="link-btn-select" data-id="${f.id}" data-acao="mudar-setor">${ativosSetores
+                .map((s) => `<option value="${s.id}" ${String(s.id) === String(f.setor_id) ? "selected" : ""}>${escapeHtml(s.nome)}</option>`)
+                .join("")}</select>`
+            : ""
+        }
+        <button class="link-btn" data-id="${f.id}" data-ativo="${f.ativo ? 1 : 0}">${f.ativo ? "desativar" : "reativar"}</button>
+      </span>
     </li>`
     )
     .join("");
+  ul.querySelectorAll('[data-acao="mudar-setor"]').forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      await db.from("op_funcionarios").update({ setor_id: Number(sel.value) }).eq("id", sel.dataset.id);
+      await refreshCadastros();
+    });
+  });
   ul.querySelectorAll(".link-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const novoAtivo = btn.dataset.ativo !== "1";
@@ -650,15 +774,73 @@ function renderListaCategorias() {
   });
 }
 
+// ---------- cadastros: usuários (admin) ----------
+let perfisCache = [];
+
+async function loadPerfis() {
+  if (!souAdmin()) {
+    perfisCache = [];
+    return;
+  }
+  const { data, error } = await comTimeout(db.from("op_perfis").select("*").order("role").order("nome"));
+  if (error) throw new Error(error.message);
+  perfisCache = data;
+}
+
+function renderListaPerfis() {
+  const ul = document.getElementById("lista-usuarios");
+  ul.innerHTML = perfisCache
+    .map((p) => {
+      const setorNome = p.setor_id ? setoresCache.find((s) => String(s.id) === String(p.setor_id))?.nome || `setor #${p.setor_id}` : "";
+      const detalhe = p.role === "admin" ? "admin" : `líder · ${escapeHtml(setorNome)}`;
+      return `
+    <li>
+      <span>${escapeHtml(p.nome)} <span class="muted">· ${detalhe}</span></span>
+      <button class="link-btn danger" data-id="${p.user_id}">remover acesso</button>
+    </li>`;
+    })
+    .join("");
+  ul.querySelectorAll(".link-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (!confirm("Remover o acesso desse usuário ao painel? A conta de login continua existindo no Supabase, só perde a permissão.")) return;
+      await db.from("op_perfis").delete().eq("user_id", btn.dataset.id);
+      await loadPerfis();
+      renderListaPerfis();
+    });
+  });
+}
+
+document.getElementById("usu-role").addEventListener("change", (e) => {
+  document.getElementById("usu-setor").classList.toggle("hidden", e.target.value === "admin");
+});
+
+document.getElementById("form-usuario").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const uid = document.getElementById("usu-uid").value.trim();
+  const nome = document.getElementById("usu-nome").value.trim();
+  const role = document.getElementById("usu-role").value;
+  const setorId = role === "lider" ? Number(document.getElementById("usu-setor").value) : null;
+  if (!uid || !nome) return;
+  if (role === "lider" && !setorId) return alert("Selecione um setor para o líder.");
+  const { error } = await db.from("op_perfis").insert({ user_id: uid, nome, role, setor_id: setorId });
+  if (error) return alert("Erro ao adicionar usuário: " + error.message);
+  document.getElementById("usu-uid").value = "";
+  document.getElementById("usu-nome").value = "";
+  await loadPerfis();
+  renderListaPerfis();
+});
+
 async function refreshCadastros() {
   await Promise.all([loadFuncionarios(), loadCategorias()]);
+  if (souAdmin()) await loadPerfis();
   atualizarSelectsCadastro();
   renderListaFuncionarios();
   renderListaCategorias();
+  if (souAdmin()) renderListaPerfis();
 }
 
-// ---------- init ----------
-(async function init() {
+// ---------- dados do app (chamado só depois do login) ----------
+async function iniciarDadosApp() {
   try {
     await loadSetores();
     renderListaSetores();
@@ -667,4 +849,4 @@ async function refreshCadastros() {
     console.warn("Erro ao carregar cadastros:", e.message);
   }
   await loadPainel();
-})();
+}

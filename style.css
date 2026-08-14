@@ -396,6 +396,37 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
 
 .hidden { display: none; }
 
+.tela-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+}
+
+.login-card h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.usuario-form select,
+.usuario-form input {
+  flex: 1;
+  min-width: 140px;
+}
+
+.link-btn-select {
+  font-size: 0.78rem;
+  padding: 0.15rem 0.3rem;
+  margin-right: 0.4rem;
+}
+
 .qr-avaliacao-card {
   display: flex;
   align-items: center;

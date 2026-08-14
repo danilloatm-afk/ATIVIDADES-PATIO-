@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Painel de Operações</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#4338c5">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Operações">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-title-row">
+    <h1>📋 Painel de Operações</h1>
+    <div class="topbar-actions">
+      <button id="btn-theme-toggle" type="button" class="btn secondary small theme-toggle" title="Alternar modo claro/escuro">🌙</button>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="painel">Painel</button>
+    <button class="tab-btn" data-tab="nova">Nova atividade</button>
+    <button class="tab-btn" data-tab="atividades">Atividades</button>
+    <button class="tab-btn" data-tab="config">Configurações</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- PAINEL -->
+  <section id="tab-painel" class="tab-content active">
+    <div class="section-head">
+      <h2>Visão geral</h2>
+      <button id="btn-refresh-painel" class="btn secondary">Atualizar</button>
+    </div>
+    <div id="resumo-cards" class="resumo-grid"></div>
+
+    <h2 class="mt">Atrasadas</h2>
+    <div class="table-wrap">
+      <table id="tbl-atrasadas">
+        <thead>
+          <tr>
+            <th>Atividade</th>
+            <th>Responsável</th>
+            <th>Categoria</th>
+            <th>Prioridade</th>
+            <th>Prazo</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h2 class="mt">Carga por responsável</h2>
+    <div class="table-wrap">
+      <table id="tbl-carga">
+        <thead>
+          <tr>
+            <th>Responsável</th>
+            <th>Abertas</th>
+            <th>Em andamento</th>
+            <th>Total ativo</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- NOVA ATIVIDADE -->
+  <section id="tab-nova" class="tab-content">
+    <h2>Registrar nova atividade</h2>
+    <form id="form-atividade" class="form-card">
+      <label>
+        Título
+        <input type="text" id="ativ-titulo" placeholder="Ex: Trocar lâmpada do galpão 2" required>
+      </label>
+      <label>
+        Responsável
+        <select id="ativ-funcionario" required></select>
+      </label>
+      <label>
+        Categoria
+        <select id="ativ-categoria">
+          <option value="">Sem categoria</option>
+        </select>
+      </label>
+      <label>
+        Prioridade
+        <select id="ativ-prioridade">
+          <option value="baixa">Baixa</option>
+          <option value="media" selected>Média</option>
+          <option value="alta">Alta</option>
+        </select>
+      </label>
+      <label>
+        Data de abertura
+        <input type="date" id="ativ-data-abertura" required>
+      </label>
+      <label>
+        Prazo (opcional)
+        <input type="date" id="ativ-prazo">
+      </label>
+      <label>
+        Descrição (opcional)
+        <textarea id="ativ-descricao" rows="3" placeholder="Detalhes da atividade"></textarea>
+      </label>
+      <button type="submit" class="btn primary">Salvar atividade</button>
+      <p id="ativ-feedback" class="feedback"></p>
+    </form>
+  </section>
+
+  <!-- ATIVIDADES -->
+  <section id="tab-atividades" class="tab-content">
+    <h2>Todas as atividades</h2>
+    <div class="filters">
+      <select id="fil-status">
+        <option value="">Todos os status</option>
+        <option value="aberto">Aberto</option>
+        <option value="andamento">Em andamento</option>
+        <option value="concluido">Concluído</option>
+      </select>
+      <select id="fil-funcionario"><option value="">Todos os responsáveis</option></select>
+      <select id="fil-categoria"><option value="">Todas as categorias</option></select>
+      <select id="fil-prioridade">
+        <option value="">Todas as prioridades</option>
+        <option value="baixa">Baixa</option>
+        <option value="media">Média</option>
+        <option value="alta">Alta</option>
+      </select>
+      <button id="btn-filtrar-atividades" class="btn secondary">Filtrar</button>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-atividades">
+        <thead>
+          <tr>
+            <th>Título</th>
+            <th>Responsável</th>
+            <th>Categoria</th>
+            <th>Prioridade</th>
+            <th>Abertura</th>
+            <th>Prazo</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CONFIG -->
+  <section id="tab-config" class="tab-content">
+    <h2>Configurações</h2>
+    <div class="cadastro-grid">
+      <div class="form-card">
+        <h3>Funcionários</h3>
+        <form id="form-funcionario" class="inline-form">
+          <input type="text" id="func-nome" placeholder="Nome" required>
+          <input type="text" id="func-cargo" placeholder="Cargo (opcional)">
+          <button type="submit" class="btn primary">Adicionar</button>
+        </form>
+        <ul id="lista-funcionarios" class="cadastro-lista"></ul>
+      </div>
+      <div class="form-card">
+        <h3>Categorias</h3>
+        <form id="form-categoria" class="inline-form">
+          <input type="text" id="cat-nome" placeholder="Nome da categoria" required>
+          <button type="submit" class="btn primary">Adicionar</button>
+        </form>
+        <ul id="lista-categorias" class="cadastro-lista"></ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+</body>
+</html>

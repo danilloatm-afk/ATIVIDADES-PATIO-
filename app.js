@@ -1,0 +1,404 @@
+const SUPABASE_URL = "https://jvfyqvefznkpcvjaerta.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2ZnlxdmVmem5rcGN2amFlcnRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMTQ4NjgsImV4cCI6MjEwMTc5MDg2OH0.2Ef6LpZ61WM8myHBYeQGo3TuGqk5C3x36ER_sWRNPS4";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((err) => console.warn("Service worker não registrado:", err));
+  });
+}
+
+const STATUS_LABEL = { aberto: "Aberto", andamento: "Em andamento", concluido: "Concluído" };
+const PRIORIDADE_LABEL = { baixa: "Baixa", media: "Média", alta: "Alta" };
+
+// ---------- tema claro/escuro ----------
+const LS_TEMA = "op_tema";
+
+function temaEfetivoEscuro(tema) {
+  if (tema === "dark") return true;
+  if (tema === "light") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function aplicarTema(tema) {
+  if (tema === "light" || tema === "dark") {
+    document.documentElement.setAttribute("data-theme", tema);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+  }
+  document.getElementById("btn-theme-toggle").textContent = temaEfetivoEscuro(tema) ? "☀️" : "🌙";
+}
+
+let temaAtual = localStorage.getItem(LS_TEMA) || "auto";
+aplicarTema(temaAtual);
+
+document.getElementById("btn-theme-toggle").addEventListener("click", () => {
+  temaAtual = temaEfetivoEscuro(temaAtual) ? "light" : "dark";
+  localStorage.setItem(LS_TEMA, temaAtual);
+  aplicarTema(temaAtual);
+});
+
+// ---------- helpers ----------
+function comTimeout(promise, ms = 6000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function hojeISO() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+function estaAtrasada(atividade) {
+  return atividade.status !== "concluido" && atividade.prazo && atividade.prazo < hojeISO();
+}
+
+// ---------- tabs ----------
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach((c) => c.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
+    if (btn.dataset.tab === "painel") loadPainel();
+    if (btn.dataset.tab === "atividades") loadAtividades();
+  });
+});
+
+// ---------- caches de cadastro ----------
+let funcionariosCache = [];
+let categoriasCache = [];
+
+async function loadFuncionarios() {
+  const { data, error } = await comTimeout(db.from("op_funcionarios").select("*").order("ativo", { ascending: false }).order("nome"));
+  if (error) throw new Error(error.message);
+  funcionariosCache = data;
+}
+
+async function loadCategorias() {
+  const { data, error } = await comTimeout(db.from("op_categorias").select("*").order("ativo", { ascending: false }).order("nome"));
+  if (error) throw new Error(error.message);
+  categoriasCache = data;
+}
+
+function atualizarSelectsCadastro() {
+  const funcAtivos = funcionariosCache.filter((f) => f.ativo);
+  const catAtivas = categoriasCache.filter((c) => c.ativo);
+
+  const optsFunc = funcAtivos.map((f) => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join("");
+  const optsCat = catAtivas.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
+
+  document.getElementById("ativ-funcionario").innerHTML = optsFunc;
+  document.getElementById("ativ-categoria").innerHTML = '<option value="">Sem categoria</option>' + optsCat;
+
+  document.getElementById("fil-funcionario").innerHTML =
+    '<option value="">Todos os responsáveis</option>' + funcionariosCache.map((f) => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join("");
+  document.getElementById("fil-categoria").innerHTML =
+    '<option value="">Todas as categorias</option>' + categoriasCache.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
+}
+
+// ---------- painel ----------
+async function loadPainel() {
+  const cards = document.getElementById("resumo-cards");
+  cards.innerHTML = '<div class="empty-state">Carregando...</div>';
+  try {
+    const { data, error } = await comTimeout(
+      db.from("op_atividades").select("*, op_funcionarios(nome), op_categorias(nome)").order("prazo", { ascending: true })
+    );
+    if (error) throw new Error(error.message);
+
+    const abertas = data.filter((a) => a.status === "aberto");
+    const andamento = data.filter((a) => a.status === "andamento");
+    const atrasadas = data.filter(estaAtrasada);
+    const seteDiasAtras = new Date();
+    seteDiasAtras.setDate(seteDiasAtras.getDate() - 7);
+    const concluidasRecentes = data.filter(
+      (a) => a.status === "concluido" && a.data_conclusao && new Date(a.data_conclusao) >= seteDiasAtras
+    );
+
+    cards.innerHTML = `
+      <div class="resumo-card">
+        <div class="resumo-num">${abertas.length}</div>
+        <div class="resumo-label">Abertas</div>
+      </div>
+      <div class="resumo-card">
+        <div class="resumo-num">${andamento.length}</div>
+        <div class="resumo-label">Em andamento</div>
+      </div>
+      <div class="resumo-card atrasado">
+        <div class="resumo-num">${atrasadas.length}</div>
+        <div class="resumo-label">Atrasadas</div>
+      </div>
+      <div class="resumo-card ok">
+        <div class="resumo-num">${concluidasRecentes.length}</div>
+        <div class="resumo-label">Concluídas (7 dias)</div>
+      </div>
+    `;
+
+    const tbodyAtrasadas = document.querySelector("#tbl-atrasadas tbody");
+    tbodyAtrasadas.innerHTML = atrasadas.length
+      ? atrasadas
+          .map(
+            (a) => `
+        <tr>
+          <td>${escapeHtml(a.titulo)}</td>
+          <td>${escapeHtml(a.op_funcionarios?.nome || "")}</td>
+          <td>${escapeHtml(a.op_categorias?.nome || "—")}</td>
+          <td>${renderBadgePrioridade(a.prioridade)}</td>
+          <td>${formatDate(a.prazo)}</td>
+          <td>${renderBadgeStatus(a.status)}</td>
+        </tr>`
+          )
+          .join("")
+      : '<tr><td colspan="6">Nenhuma atividade atrasada. 🎉</td></tr>';
+
+    const ativos = data.filter((a) => a.status !== "concluido");
+    const porFuncionario = {};
+    ativos.forEach((a) => {
+      const nome = a.op_funcionarios?.nome || "—";
+      porFuncionario[nome] = porFuncionario[nome] || { aberto: 0, andamento: 0 };
+      porFuncionario[nome][a.status] = (porFuncionario[nome][a.status] || 0) + 1;
+    });
+    const tbodyCarga = document.querySelector("#tbl-carga tbody");
+    const linhas = Object.entries(porFuncionario).sort((a, b) => (b[1].aberto + b[1].andamento) - (a[1].aberto + a[1].andamento));
+    tbodyCarga.innerHTML = linhas.length
+      ? linhas
+          .map(
+            ([nome, c]) => `
+        <tr>
+          <td>${escapeHtml(nome)}</td>
+          <td>${c.aberto || 0}</td>
+          <td>${c.andamento || 0}</td>
+          <td>${(c.aberto || 0) + (c.andamento || 0)}</td>
+        </tr>`
+          )
+          .join("")
+      : '<tr><td colspan="4">Nenhuma atividade ativa.</td></tr>';
+  } catch (e) {
+    cards.innerHTML = `<div class="empty-state">Erro ao carregar: ${e.message}</div>`;
+  }
+}
+
+document.getElementById("btn-refresh-painel").addEventListener("click", loadPainel);
+
+function renderBadgeStatus(status) {
+  return `<span class="badge status-${status}">${STATUS_LABEL[status] || status}</span>`;
+}
+
+function renderBadgePrioridade(prioridade) {
+  return `<span class="badge prio-${prioridade}">${PRIORIDADE_LABEL[prioridade] || prioridade}</span>`;
+}
+
+// ---------- nova atividade ----------
+document.getElementById("ativ-data-abertura").valueAsDate = new Date();
+
+document.getElementById("form-atividade").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const feedback = document.getElementById("ativ-feedback");
+  feedback.textContent = "";
+  feedback.className = "feedback";
+
+  const funcionarioId = document.getElementById("ativ-funcionario").value;
+  if (!funcionarioId) {
+    feedback.textContent = "Cadastre um funcionário em Configurações antes de registrar uma atividade.";
+    feedback.className = "feedback error";
+    return;
+  }
+
+  const payload = {
+    titulo: document.getElementById("ativ-titulo").value.trim(),
+    funcionario_id: Number(funcionarioId),
+    categoria_id: document.getElementById("ativ-categoria").value || null,
+    prioridade: document.getElementById("ativ-prioridade").value,
+    data_abertura: document.getElementById("ativ-data-abertura").value,
+    prazo: document.getElementById("ativ-prazo").value || null,
+    descricao: document.getElementById("ativ-descricao").value.trim(),
+  };
+
+  try {
+    const { error } = await db.from("op_atividades").insert(payload);
+    if (error) throw new Error(error.message);
+    feedback.textContent = "Atividade registrada com sucesso!";
+    feedback.className = "feedback success";
+    document.getElementById("form-atividade").reset();
+    document.getElementById("ativ-data-abertura").valueAsDate = new Date();
+    document.getElementById("ativ-prioridade").value = "media";
+  } catch (err) {
+    feedback.textContent = "Erro: " + err.message;
+    feedback.className = "feedback error";
+  }
+});
+
+// ---------- atividades ----------
+async function loadAtividades() {
+  const tbody = document.querySelector("#tbl-atividades tbody");
+  tbody.innerHTML = '<tr><td colspan="8">Carregando...</td></tr>';
+
+  const status = document.getElementById("fil-status").value;
+  const funcionarioId = document.getElementById("fil-funcionario").value;
+  const categoriaId = document.getElementById("fil-categoria").value;
+  const prioridade = document.getElementById("fil-prioridade").value;
+
+  try {
+    let query = db
+      .from("op_atividades")
+      .select("*, op_funcionarios(nome), op_categorias(nome)")
+      .order("status")
+      .order("prazo", { ascending: true, nullsFirst: false });
+    if (status) query = query.eq("status", status);
+    if (funcionarioId) query = query.eq("funcionario_id", funcionarioId);
+    if (categoriaId) query = query.eq("categoria_id", categoriaId);
+    if (prioridade) query = query.eq("prioridade", prioridade);
+
+    const { data: rows, error } = await comTimeout(query);
+    if (error) throw new Error(error.message);
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8">Nenhuma atividade encontrada.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows
+      .map((a) => {
+        const prazoClasse = estaAtrasada(a) ? "prazo-atrasado" : "";
+        let acoes = "";
+        if (a.status === "aberto") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="iniciar">iniciar</button> `;
+        if (a.status === "andamento") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="concluir">concluir</button> `;
+        if (a.status === "concluido") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="reabrir">reabrir</button> `;
+        acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
+        return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(a.titulo)}</strong>
+            ${a.descricao ? `<div class="muted">${escapeHtml(a.descricao)}</div>` : ""}
+          </td>
+          <td>${escapeHtml(a.op_funcionarios?.nome || "")}</td>
+          <td>${escapeHtml(a.op_categorias?.nome || "—")}</td>
+          <td>${renderBadgePrioridade(a.prioridade)}</td>
+          <td>${formatDate(a.data_abertura)}</td>
+          <td class="${prazoClasse}">${formatDate(a.prazo) || "—"}</td>
+          <td>${renderBadgeStatus(a.status)}</td>
+          <td class="acoes">${acoes}</td>
+        </tr>`;
+      })
+      .join("");
+
+    tbody.querySelectorAll(".link-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const acao = btn.dataset.acao;
+        if (acao === "excluir") {
+          if (!confirm("Excluir esta atividade?")) return;
+          await db.from("op_atividades").delete().eq("id", id);
+        } else if (acao === "iniciar") {
+          await db.from("op_atividades").update({ status: "andamento" }).eq("id", id);
+        } else if (acao === "concluir") {
+          await db.from("op_atividades").update({ status: "concluido", data_conclusao: new Date().toISOString() }).eq("id", id);
+        } else if (acao === "reabrir") {
+          await db.from("op_atividades").update({ status: "aberto", data_conclusao: null }).eq("id", id);
+        }
+        loadAtividades();
+      });
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="8">Erro: ${e.message}</td></tr>`;
+  }
+}
+
+document.getElementById("btn-filtrar-atividades").addEventListener("click", loadAtividades);
+
+// ---------- cadastros: funcionarios ----------
+document.getElementById("form-funcionario").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nome = document.getElementById("func-nome").value.trim();
+  const cargo = document.getElementById("func-cargo").value.trim();
+  if (!nome) return;
+  const { error } = await db.from("op_funcionarios").insert({ nome, cargo });
+  if (error) return alert("Erro ao adicionar funcionário: " + error.message);
+  document.getElementById("func-nome").value = "";
+  document.getElementById("func-cargo").value = "";
+  await refreshCadastros();
+});
+
+function renderListaFuncionarios() {
+  const ul = document.getElementById("lista-funcionarios");
+  ul.innerHTML = funcionariosCache
+    .map(
+      (f) => `
+    <li class="${f.ativo ? "" : "inativo"}">
+      <span>${escapeHtml(f.nome)}${f.cargo ? ` <span class="muted">· ${escapeHtml(f.cargo)}</span>` : ""}</span>
+      <button class="link-btn" data-id="${f.id}" data-ativo="${f.ativo ? 1 : 0}">${f.ativo ? "desativar" : "reativar"}</button>
+    </li>`
+    )
+    .join("");
+  ul.querySelectorAll(".link-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const novoAtivo = btn.dataset.ativo !== "1";
+      await db.from("op_funcionarios").update({ ativo: novoAtivo }).eq("id", btn.dataset.id);
+      await refreshCadastros();
+    });
+  });
+}
+
+// ---------- cadastros: categorias ----------
+document.getElementById("form-categoria").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const nome = document.getElementById("cat-nome").value.trim();
+  if (!nome) return;
+  const { error } = await db.from("op_categorias").insert({ nome });
+  if (error) return alert("Erro ao adicionar categoria: " + error.message);
+  document.getElementById("cat-nome").value = "";
+  await refreshCadastros();
+});
+
+function renderListaCategorias() {
+  const ul = document.getElementById("lista-categorias");
+  ul.innerHTML = categoriasCache
+    .map(
+      (c) => `
+    <li class="${c.ativo ? "" : "inativo"}">
+      <span>${escapeHtml(c.nome)}</span>
+      <button class="link-btn" data-id="${c.id}" data-ativo="${c.ativo ? 1 : 0}">${c.ativo ? "desativar" : "reativar"}</button>
+    </li>`
+    )
+    .join("");
+  ul.querySelectorAll(".link-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const novoAtivo = btn.dataset.ativo !== "1";
+      await db.from("op_categorias").update({ ativo: novoAtivo }).eq("id", btn.dataset.id);
+      await refreshCadastros();
+    });
+  });
+}
+
+async function refreshCadastros() {
+  await Promise.all([loadFuncionarios(), loadCategorias()]);
+  atualizarSelectsCadastro();
+  renderListaFuncionarios();
+  renderListaCategorias();
+}
+
+// ---------- init ----------
+(async function init() {
+  try {
+    await refreshCadastros();
+  } catch (e) {
+    console.warn("Erro ao carregar cadastros:", e.message);
+  }
+  await loadPainel();
+})();

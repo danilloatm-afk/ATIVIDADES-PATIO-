@@ -1,0 +1,139 @@
+const SUPABASE_URL = "https://jvfyqvefznkpcvjaerta.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2ZnlxdmVmem5rcGN2amFlcnRhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYyMTQ4NjgsImV4cCI6MjEwMTc5MDg2OH0.2Ef6LpZ61WM8myHBYeQGo3TuGqk5C3x36ER_sWRNPS4";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str ?? "";
+  return div.innerHTML;
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+const container = document.getElementById("avaliar-conteudo");
+let notaSelecionada = 0;
+let resolveuSelecionado = null;
+
+function renderErro(msg) {
+  container.innerHTML = `<div class="empty-state">${escapeHtml(msg)}</div>`;
+}
+
+function renderObrigado(atividade) {
+  container.innerHTML = `
+    <h2>Obrigado pela avaliação!</h2>
+    <p>Sua resposta sobre "<strong>${escapeHtml(atividade.titulo)}</strong>" já foi registrada.</p>
+    <p>Nota enviada: ${"★".repeat(atividade.avaliacao_nota)}${"☆".repeat(5 - atividade.avaliacao_nota)}</p>
+  `;
+}
+
+function renderEstrelasInterativas() {
+  const wrap = document.getElementById("estrelas-wrap");
+  wrap.innerHTML = [1, 2, 3, 4, 5]
+    .map((n) => `<button type="button" class="estrela-btn" data-n="${n}">${n <= notaSelecionada ? "★" : "☆"}</button>`)
+    .join("");
+  wrap.querySelectorAll(".estrela-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      notaSelecionada = Number(btn.dataset.n);
+      renderEstrelasInterativas();
+    });
+  });
+}
+
+function renderFormulario(atividade) {
+  container.innerHTML = `
+    <h2>${escapeHtml(atividade.titulo)}</h2>
+    <p class="muted">
+      ${atividade.op_categorias?.nome ? escapeHtml(atividade.op_categorias.nome) + " · " : ""}
+      ${atividade.op_funcionarios?.nome ? "Responsável: " + escapeHtml(atividade.op_funcionarios.nome) + " · " : ""}
+      ${formatDate(atividade.data_abertura)}
+    </p>
+    <form id="form-avaliacao" class="form-card" style="padding:0; border:none;">
+      <label>
+        Como você avalia esse serviço?
+        <div id="estrelas-wrap" class="estrelas-wrap"></div>
+      </label>
+      <label>
+        O problema foi resolvido?
+        <div class="resolveu-wrap">
+          <button type="button" class="btn secondary" data-resolveu="sim">Sim</button>
+          <button type="button" class="btn secondary" data-resolveu="nao">Não</button>
+        </div>
+      </label>
+      <label>
+        Comentário (opcional)
+        <textarea id="av-comentario" rows="3" placeholder="Conte como foi o atendimento"></textarea>
+      </label>
+      <button type="submit" class="btn primary">Enviar avaliação</button>
+      <p id="av-feedback" class="feedback"></p>
+    </form>
+  `;
+
+  renderEstrelasInterativas();
+
+  document.querySelectorAll("[data-resolveu]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      resolveuSelecionado = btn.dataset.resolveu === "sim";
+      document.querySelectorAll("[data-resolveu]").forEach((b) => b.classList.remove("selecionado"));
+      btn.classList.add("selecionado");
+    });
+  });
+
+  document.getElementById("form-avaliacao").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const feedback = document.getElementById("av-feedback");
+    feedback.className = "feedback";
+    if (!notaSelecionada) {
+      feedback.textContent = "Escolha uma nota de 1 a 5 estrelas.";
+      feedback.className = "feedback error";
+      return;
+    }
+    feedback.textContent = "Enviando...";
+    try {
+      const { error } = await db
+        .from("op_atividades")
+        .update({
+          avaliacao_nota: notaSelecionada,
+          avaliacao_resolveu: resolveuSelecionado,
+          avaliacao_comentario: document.getElementById("av-comentario").value.trim(),
+          avaliacao_respondida_em: new Date().toISOString(),
+        })
+        .eq("avaliacao_token", atividade.avaliacao_token);
+      if (error) throw new Error(error.message);
+      renderObrigado({ ...atividade, avaliacao_nota: notaSelecionada });
+    } catch (err) {
+      feedback.textContent = "Erro ao enviar: " + err.message;
+      feedback.className = "feedback error";
+    }
+  });
+}
+
+(async function init() {
+  const token = new URLSearchParams(location.search).get("t");
+  if (!token) {
+    renderErro("Link inválido: nenhum código de avaliação informado.");
+    return;
+  }
+  try {
+    const { data, error } = await db
+      .from("op_atividades")
+      .select("titulo, data_abertura, avaliacao_token, avaliacao_nota, avaliacao_resolveu, avaliacao_respondida_em, op_categorias(nome), op_funcionarios(nome)")
+      .eq("avaliacao_token", token)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) {
+      renderErro("Não encontramos essa atividade. O link pode estar incorreto ou expirado.");
+      return;
+    }
+    if (data.avaliacao_respondida_em) {
+      renderObrigado(data);
+      return;
+    }
+    renderFormulario(data);
+  } catch (e) {
+    renderErro("Erro ao carregar: " + e.message);
+  }
+})();

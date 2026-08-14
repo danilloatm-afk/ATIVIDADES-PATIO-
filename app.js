@@ -68,6 +68,19 @@ function estaAtrasada(atividade) {
   return atividade.status !== "concluido" && atividade.prazo && atividade.prazo < hojeISO();
 }
 
+function linkAvaliacao(token) {
+  return new URL(`avaliar.html?t=${token}`, location.href).href;
+}
+
+function renderEstrelas(nota) {
+  return "★".repeat(nota) + "☆".repeat(5 - nota);
+}
+
+function linkWhatsapp(numero, mensagem) {
+  const digitos = String(numero || "").replace(/\D/g, "");
+  return `https://wa.me/${digitos}?text=${encodeURIComponent(mensagem)}`;
+}
+
 // ---------- tabs ----------
 document.querySelectorAll(".tab-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -130,6 +143,8 @@ async function loadPainel() {
     const concluidasRecentes = data.filter(
       (a) => a.status === "concluido" && a.data_conclusao && new Date(a.data_conclusao) >= seteDiasAtras
     );
+    const avaliadas = data.filter((a) => a.avaliacao_nota);
+    const notaMedia = avaliadas.length ? avaliadas.reduce((soma, a) => soma + a.avaliacao_nota, 0) / avaliadas.length : null;
 
     cards.innerHTML = `
       <div class="resumo-card">
@@ -147,6 +162,10 @@ async function loadPainel() {
       <div class="resumo-card ok">
         <div class="resumo-num">${concluidasRecentes.length}</div>
         <div class="resumo-label">Concluídas (7 dias)</div>
+      </div>
+      <div class="resumo-card">
+        <div class="resumo-num">${notaMedia ? notaMedia.toFixed(1) + " ★" : "—"}</div>
+        <div class="resumo-label">Nota média (${avaliadas.length} avalia${avaliadas.length === 1 ? "ção" : "ções"})</div>
       </div>
     `;
 
@@ -167,34 +186,56 @@ async function loadPainel() {
           .join("")
       : '<tr><td colspan="6">Nenhuma atividade atrasada. 🎉</td></tr>';
 
-    const ativos = data.filter((a) => a.status !== "concluido");
-    const porFuncionario = {};
-    ativos.forEach((a) => {
-      const nome = a.op_funcionarios?.nome || "—";
-      porFuncionario[nome] = porFuncionario[nome] || { aberto: 0, andamento: 0 };
-      porFuncionario[nome][a.status] = (porFuncionario[nome][a.status] || 0) + 1;
-    });
-    const tbodyCarga = document.querySelector("#tbl-carga tbody");
-    const linhas = Object.entries(porFuncionario).sort((a, b) => (b[1].aberto + b[1].andamento) - (a[1].aberto + a[1].andamento));
-    tbodyCarga.innerHTML = linhas.length
-      ? linhas
-          .map(
-            ([nome, c]) => `
-        <tr>
-          <td>${escapeHtml(nome)}</td>
-          <td>${c.aberto || 0}</td>
-          <td>${c.andamento || 0}</td>
-          <td>${(c.aberto || 0) + (c.andamento || 0)}</td>
-        </tr>`
-          )
-          .join("")
-      : '<tr><td colspan="4">Nenhuma atividade ativa.</td></tr>';
+    renderTabelaIndicadores("#tbl-carga tbody", data, (a) => a.op_funcionarios?.nome || "—", 7, "Nenhuma atividade registrada.");
+    renderTabelaIndicadores("#tbl-categoria tbody", data, (a) => a.op_categorias?.nome || "Sem categoria", 7, "Nenhuma atividade registrada.");
   } catch (e) {
     cards.innerHTML = `<div class="empty-state">Erro ao carregar: ${e.message}</div>`;
   }
 }
 
 document.getElementById("btn-refresh-painel").addEventListener("click", loadPainel);
+
+// Agrupa atividades por uma chave (funcionário, categoria, ...) e renderiza
+// uma tabela com contagem por status + atrasadas + total + nota média.
+function renderTabelaIndicadores(seletorTbody, atividades, chaveFn, colSpan, msgVazio) {
+  const grupos = {};
+  atividades.forEach((a) => {
+    const chave = chaveFn(a);
+    grupos[chave] = grupos[chave] || { aberto: 0, andamento: 0, concluido: 0, atrasadas: 0, somaNotas: 0, qtdNotas: 0 };
+    grupos[chave][a.status] = (grupos[chave][a.status] || 0) + 1;
+    if (estaAtrasada(a)) grupos[chave].atrasadas++;
+    if (a.avaliacao_nota) {
+      grupos[chave].somaNotas += a.avaliacao_nota;
+      grupos[chave].qtdNotas++;
+    }
+  });
+
+  const linhas = Object.entries(grupos).sort(([, a], [, b]) => {
+    const totalA = a.aberto + a.andamento + a.concluido;
+    const totalB = b.aberto + b.andamento + b.concluido;
+    return totalB - totalA;
+  });
+
+  const tbody = document.querySelector(seletorTbody);
+  tbody.innerHTML = linhas.length
+    ? linhas
+        .map(([nome, c]) => {
+          const total = c.aberto + c.andamento + c.concluido;
+          const nota = c.qtdNotas ? (c.somaNotas / c.qtdNotas).toFixed(1) : "—";
+          return `
+        <tr>
+          <td>${escapeHtml(nome)}</td>
+          <td>${c.aberto}</td>
+          <td>${c.andamento}</td>
+          <td>${c.concluido}</td>
+          <td class="${c.atrasadas ? "prazo-atrasado" : ""}">${c.atrasadas}</td>
+          <td>${total}</td>
+          <td>${nota}</td>
+        </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="${colSpan}">${msgVazio}</td></tr>`;
+}
 
 function renderBadgeStatus(status) {
   return `<span class="badge status-${status}">${STATUS_LABEL[status] || status}</span>`;
@@ -227,6 +268,8 @@ document.getElementById("form-atividade").addEventListener("submit", async (e) =
     prioridade: document.getElementById("ativ-prioridade").value,
     data_abertura: document.getElementById("ativ-data-abertura").value,
     prazo: document.getElementById("ativ-prazo").value || null,
+    cliente_nome: document.getElementById("ativ-cliente-nome").value.trim(),
+    cliente_whatsapp: document.getElementById("ativ-cliente-whatsapp").value.trim(),
     descricao: document.getElementById("ativ-descricao").value.trim(),
   };
 
@@ -247,7 +290,7 @@ document.getElementById("form-atividade").addEventListener("submit", async (e) =
 // ---------- atividades ----------
 async function loadAtividades() {
   const tbody = document.querySelector("#tbl-atividades tbody");
-  tbody.innerHTML = '<tr><td colspan="8">Carregando...</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="9">Carregando...</td></tr>';
 
   const status = document.getElementById("fil-status").value;
   const funcionarioId = document.getElementById("fil-funcionario").value;
@@ -269,7 +312,7 @@ async function loadAtividades() {
     if (error) throw new Error(error.message);
 
     if (rows.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8">Nenhuma atividade encontrada.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9">Nenhuma atividade encontrada.</td></tr>';
       return;
     }
 
@@ -281,11 +324,31 @@ async function loadAtividades() {
         if (a.status === "andamento") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="concluir">concluir</button> `;
         if (a.status === "concluido") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="reabrir">reabrir</button> `;
         acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
+
+        let avaliacao;
+        if (a.avaliacao_respondida_em) {
+          avaliacao = `<div>${renderEstrelas(a.avaliacao_nota)}</div>${
+            a.avaliacao_resolveu === false ? '<div class="muted">problema não resolvido</div>' : ""
+          }`;
+        } else if (a.status === "concluido" && a.cliente_whatsapp) {
+          avaliacao = `<a class="link-btn" target="_blank" rel="noopener" href="${escapeHtml(
+            linkWhatsapp(
+              a.cliente_whatsapp,
+              `Olá${a.cliente_nome ? " " + a.cliente_nome : ""}! Poderia avaliar o serviço "${a.titulo}" que realizamos? ${linkAvaliacao(a.avaliacao_token)}`
+            )
+          )}">enviar p/ WhatsApp</a>`;
+        } else if (a.status === "concluido") {
+          avaliacao = '<span class="muted">sem WhatsApp do cliente</span>';
+        } else {
+          avaliacao = '<span class="muted">—</span>';
+        }
+
         return `
         <tr>
           <td>
             <strong>${escapeHtml(a.titulo)}</strong>
             ${a.descricao ? `<div class="muted">${escapeHtml(a.descricao)}</div>` : ""}
+            ${a.cliente_nome ? `<div class="muted">Cliente: ${escapeHtml(a.cliente_nome)}</div>` : ""}
           </td>
           <td>${escapeHtml(a.op_funcionarios?.nome || "")}</td>
           <td>${escapeHtml(a.op_categorias?.nome || "—")}</td>
@@ -293,12 +356,13 @@ async function loadAtividades() {
           <td>${formatDate(a.data_abertura)}</td>
           <td class="${prazoClasse}">${formatDate(a.prazo) || "—"}</td>
           <td>${renderBadgeStatus(a.status)}</td>
+          <td>${avaliacao}</td>
           <td class="acoes">${acoes}</td>
         </tr>`;
       })
       .join("");
 
-    tbody.querySelectorAll(".link-btn").forEach((btn) => {
+    tbody.querySelectorAll(".link-btn[data-acao]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.id;
         const acao = btn.dataset.acao;
@@ -316,7 +380,7 @@ async function loadAtividades() {
       });
     });
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="8">Erro: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9">Erro: ${e.message}</td></tr>`;
   }
 }
 

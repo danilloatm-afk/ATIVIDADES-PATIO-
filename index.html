@@ -56,7 +56,7 @@
       </table>
     </div>
 
-    <h2 class="mt">Carga por responsável</h2>
+    <h2 class="mt">Indicadores por colaborador</h2>
     <div class="table-wrap">
       <table id="tbl-carga">
         <thead>
@@ -64,7 +64,28 @@
             <th>Responsável</th>
             <th>Abertas</th>
             <th>Em andamento</th>
-            <th>Total ativo</th>
+            <th>Concluídas</th>
+            <th>Atrasadas</th>
+            <th>Total</th>
+            <th>Nota média</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <h2 class="mt">Indicadores por categoria</h2>
+    <div class="table-wrap">
+      <table id="tbl-categoria">
+        <thead>
+          <tr>
+            <th>Categoria</th>
+            <th>Abertas</th>
+            <th>Em andamento</th>
+            <th>Concluídas</th>
+            <th>Atrasadas</th>
+            <th>Total</th>
+            <th>Nota média</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -107,6 +128,14 @@
         <input type="date" id="ativ-prazo">
       </label>
       <label>
+        Cliente atendido (opcional)
+        <input type="text" id="ativ-cliente-nome" placeholder="Nome do cliente/empresa">
+      </label>
+      <label>
+        WhatsApp do cliente (opcional)
+        <input type="text" id="ativ-cliente-whatsapp" placeholder="Ex: 5511999999999">
+      </label>
+      <label>
         Descrição (opcional)
         <textarea id="ativ-descricao" rows="3" placeholder="Detalhes da atividade"></textarea>
       </label>
@@ -146,6 +175,7 @@
             <th>Abertura</th>
             <th>Prazo</th>
             <th>Status</th>
+            <th>Avaliação</th>
             <th></th>
           </tr>
         </thead>

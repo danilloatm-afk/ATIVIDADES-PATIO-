@@ -1,6 +1,13 @@
 -- Schema do "Painel de Operações" no mesmo projeto Supabase do Contas
 -- Mensais / Controle de Bebedouros. Tabelas prefixadas com op_ para não
 -- colidir com as tabelas dos outros apps (bd_..., contas, gastos, etc).
+--
+-- NOTA: as colunas de cliente/avaliação foram adicionadas depois, via
+-- supabase-migration-avaliacoes.sql. Se você está rodando este arquivo do
+-- zero num projeto novo, não precisa rodar a migração separada — as colunas
+-- já estão incluídas abaixo.
+
+create extension if not exists pgcrypto;
 
 create table op_funcionarios (
   id bigint generated always as identity primary key,
@@ -27,7 +34,14 @@ create table op_atividades (
   prazo date,
   data_conclusao timestamptz,
   observacao text not null default '',
-  criado_em timestamptz not null default now()
+  criado_em timestamptz not null default now(),
+  cliente_nome text not null default '',
+  cliente_whatsapp text not null default '',
+  avaliacao_token uuid not null default gen_random_uuid() unique,
+  avaliacao_nota smallint check (avaliacao_nota between 1 and 5),
+  avaliacao_resolveu boolean,
+  avaliacao_comentario text not null default '',
+  avaliacao_respondida_em timestamptz
 );
 
 -- Libera leitura/escrita (mesmo critério dos outros apps: sem login, só

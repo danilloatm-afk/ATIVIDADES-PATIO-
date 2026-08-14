@@ -7,7 +7,7 @@
 // style.css, app.js, manifest.json, ícones), aumente o CACHE_VERSION abaixo.
 // Sem isso o navegador de quem já instalou o app continua servindo os
 // arquivos antigos do cache indefinidamente.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v3";
 const CACHE_NAME = `op-shell-${CACHE_VERSION}`;
 
 const ARQUIVOS_PRECACHE = [
@@ -15,6 +15,8 @@ const ARQUIVOS_PRECACHE = [
   "index.html",
   "style.css",
   "app.js",
+  "avaliar.html",
+  "avaliar.js",
   "manifest.json",
   "icon-192.png",
   "icon-512.png",

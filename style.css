@@ -328,3 +328,35 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
 }
 
 .cadastro-lista li.inativo { opacity: 0.5; }
+
+.avaliar-main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.estrelas-wrap {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.estrela-btn {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #f59e0b;
+  padding: 0;
+}
+
+.resolveu-wrap {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.resolveu-wrap .btn.selecionado {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}

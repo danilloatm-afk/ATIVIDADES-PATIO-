@@ -30,16 +30,26 @@ function renderObrigado(atividade) {
   `;
 }
 
+// Monta os 5 botões UMA vez só e usa um único listener delegado no
+// container. Recriar os botões a cada clique (innerHTML de novo + rebind)
+// é frágil em touch: no celular o toque pode terminar num elemento que
+// acabou de ser substituído, fazendo o clique "sumir" ou marcar a estrela
+// errada. Agora só o texto (★/☆) de cada botão já existente é atualizado.
 function renderEstrelasInterativas() {
   const wrap = document.getElementById("estrelas-wrap");
-  wrap.innerHTML = [1, 2, 3, 4, 5]
-    .map((n) => `<button type="button" class="estrela-btn" data-n="${n}">${n <= notaSelecionada ? "★" : "☆"}</button>`)
-    .join("");
-  wrap.querySelectorAll(".estrela-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      notaSelecionada = Number(btn.dataset.n);
-      renderEstrelasInterativas();
-    });
+  wrap.innerHTML = [1, 2, 3, 4, 5].map((n) => `<button type="button" class="estrela-btn" data-n="${n}">☆</button>`).join("");
+  atualizarEstrelasVisual();
+  wrap.addEventListener("click", (e) => {
+    const btn = e.target.closest(".estrela-btn");
+    if (!btn) return;
+    notaSelecionada = Number(btn.dataset.n);
+    atualizarEstrelasVisual();
+  });
+}
+
+function atualizarEstrelasVisual() {
+  document.querySelectorAll(".estrela-btn").forEach((btn) => {
+    btn.textContent = Number(btn.dataset.n) <= notaSelecionada ? "★" : "☆";
   });
 }
 

@@ -252,6 +252,17 @@ input, select, textarea {
   border-radius: 10px;
 }
 
+.table-wrap-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.table-wrap-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -381,4 +392,82 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
   background: var(--primary);
   color: white;
   border-color: var(--primary);
+}
+
+.hidden { display: none; }
+
+.qr-avaliacao-card {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.qr-avaliacao-img {
+  width: 140px;
+  height: 140px;
+  border-radius: 8px;
+  background: white;
+  padding: 6px;
+  flex-shrink: 0;
+}
+
+.qr-avaliacao-info {
+  flex: 1;
+  min-width: 220px;
+}
+
+.qr-avaliacao-titulo {
+  margin: 0 0 0.3rem;
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--primary);
+}
+
+.qr-avaliacao-sub {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.qr-avaliacao-link-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.qr-avaliacao-link-input {
+  flex: 1;
+  min-width: 180px;
+  font-size: 0.8rem;
+}
+
+/* Impressão: mostra só o cartão do QR code (sem botões/link), o resto da
+   tela some. Ativado pelo botão "Imprimir" chamando window.print(). */
+@media print {
+  body * { visibility: hidden; }
+  #qr-avaliacao-card, #qr-avaliacao-card * { visibility: visible; }
+  #qr-avaliacao-card {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    flex-direction: column;
+    text-align: center;
+    border: none;
+  }
+  #qr-avaliacao-card .qr-avaliacao-img {
+    width: 320px;
+    height: 320px;
+    margin: 0 auto 1.5rem;
+  }
+  #qr-avaliacao-card .qr-avaliacao-titulo { font-size: 2rem; }
+  #qr-avaliacao-card .qr-avaliacao-sub { font-size: 1.1rem; }
+  #qr-avaliacao-card .qr-avaliacao-link-row { display: none; }
 }

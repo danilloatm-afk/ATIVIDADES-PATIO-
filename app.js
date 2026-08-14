@@ -211,6 +211,41 @@ function atualizarSelectsCadastro() {
     '<option value="">Todas as categorias</option>' + categoriasCache.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
 }
 
+// ---------- QR code de avaliação do setor ----------
+let linkAvaliacaoSetorAtual = "";
+
+function atualizarCardQrSetor() {
+  const card = document.getElementById("qr-avaliacao-card");
+  const setor = setoresCache.find((s) => String(s.id) === String(setorSelecionadoId));
+  if (!setor || !setor.avaliacao_token) {
+    card.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+  linkAvaliacaoSetorAtual = linkAvaliacaoSetor(setor.avaliacao_token);
+  document.getElementById("qr-avaliacao-link").value = linkAvaliacaoSetorAtual;
+  const img = document.getElementById("qr-avaliacao-setor");
+  img.src = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(linkAvaliacaoSetorAtual)}`;
+  img.alt = `QR code para avaliar o setor ${setor.nome}`;
+}
+
+document.getElementById("btn-copiar-link-setor").addEventListener("click", async () => {
+  if (!linkAvaliacaoSetorAtual) return;
+  const btn = document.getElementById("btn-copiar-link-setor");
+  try {
+    await navigator.clipboard.writeText(linkAvaliacaoSetorAtual);
+    const textoOriginal = btn.textContent;
+    btn.textContent = "Copiado!";
+    setTimeout(() => (btn.textContent = textoOriginal), 2000);
+  } catch {
+    prompt("Copie o link de avaliação do setor:", linkAvaliacaoSetorAtual);
+  }
+});
+
+document.getElementById("btn-imprimir-qr-setor").addEventListener("click", () => {
+  window.print();
+});
+
 // ---------- painel ----------
 async function loadPainel() {
   const cards = document.getElementById("resumo-cards");
@@ -221,8 +256,10 @@ async function loadPainel() {
     document.querySelector("#tbl-categoria tbody").innerHTML = "";
     document.getElementById("setor-avaliacao-resumo").innerHTML = "";
     document.querySelector("#tbl-avaliacoes-setor tbody").innerHTML = "";
+    document.getElementById("qr-avaliacao-card").classList.add("hidden");
     return;
   }
+  atualizarCardQrSetor();
   loadAvaliacaoSetor();
   cards.innerHTML = '<div class="empty-state">Carregando...</div>';
   try {
@@ -302,22 +339,27 @@ async function loadAvaliacaoSetor() {
   const resumo = document.getElementById("setor-avaliacao-resumo");
   const tbody = document.querySelector("#tbl-avaliacoes-setor tbody");
   try {
-    const { data, error } = await comTimeout(
-      db.from("op_avaliacoes_setor").select("*").eq("setor_id", setorSelecionadoId).order("criado_em", { ascending: false })
+    const { data, error, count } = await comTimeout(
+      db
+        .from("op_avaliacoes_setor")
+        .select("*", { count: "exact" })
+        .eq("setor_id", setorSelecionadoId)
+        .order("criado_em", { ascending: false })
+        .limit(200)
     );
     if (error) throw new Error(error.message);
 
     const media = data.length ? data.reduce((soma, a) => soma + a.nota, 0) / data.length : null;
+    const total = count ?? data.length;
     resumo.innerHTML = `
       <div class="resumo-card">
         <div class="resumo-num">${media ? media.toFixed(1) + " ★" : "—"}</div>
-        <div class="resumo-label">Nota média (${data.length} avalia${data.length === 1 ? "ção" : "ções"})</div>
+        <div class="resumo-label">Nota média (${total} avalia${total === 1 ? "ção" : "ções"})</div>
       </div>
     `;
 
     tbody.innerHTML = data.length
       ? data
-          .slice(0, 20)
           .map(
             (a) => `
         <tr>

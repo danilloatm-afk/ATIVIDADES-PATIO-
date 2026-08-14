@@ -44,8 +44,20 @@
     <div id="resumo-cards" class="resumo-grid"></div>
 
     <h2 class="mt">Avaliação geral do setor</h2>
+    <div id="qr-avaliacao-card" class="qr-avaliacao-card hidden">
+      <img id="qr-avaliacao-setor" class="qr-avaliacao-img" alt="QR code para avaliação do setor">
+      <div class="qr-avaliacao-info">
+        <p class="qr-avaliacao-titulo">NOS AJUDE A MELHORAR</p>
+        <p class="qr-avaliacao-sub">Aponte a câmera do celular pro QR code e avalie nosso atendimento</p>
+        <div class="qr-avaliacao-link-row">
+          <input type="text" id="qr-avaliacao-link" class="qr-avaliacao-link-input" readonly>
+          <button id="btn-copiar-link-setor" type="button" class="btn secondary small">Copiar link</button>
+          <button id="btn-imprimir-qr-setor" type="button" class="btn secondary small">Imprimir</button>
+        </div>
+      </div>
+    </div>
     <div id="setor-avaliacao-resumo" class="resumo-grid"></div>
-    <div class="table-wrap">
+    <div class="table-wrap table-wrap-scroll">
       <table id="tbl-avaliacoes-setor">
         <thead>
           <tr>

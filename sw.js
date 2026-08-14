@@ -7,7 +7,7 @@
 // style.css, app.js, manifest.json, ícones), aumente o CACHE_VERSION abaixo.
 // Sem isso o navegador de quem já instalou o app continua servindo os
 // arquivos antigos do cache indefinidamente.
-const CACHE_VERSION = "v6";
+const CACHE_VERSION = "v9";
 const CACHE_NAME = `op-shell-${CACHE_VERSION}`;
 
 const ARQUIVOS_PRECACHE = [
@@ -48,6 +48,11 @@ self.addEventListener("fetch", (event) => {
 
   // Chamadas ao Supabase (dados) sempre vão direto pra rede, sem cache.
   if (ehChamadaDeApi(url)) return;
+
+  // Recursos de outros sites (ex: imagem do QR code) vão direto pra rede,
+  // sem entrar no cache do app shell — eles mudam por setor/link e não faz
+  // sentido guardar no cache do app.
+  if (url.origin !== self.location.origin) return;
 
   // HTML/CSS/JS do app: tenta a rede primeiro (pra sempre pegar a versão
   // mais nova quando online), e só cai pro cache se estiver sem conexão.

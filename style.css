@@ -430,6 +430,13 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
   color: var(--primary);
 }
 
+.qr-avaliacao-setor-nome {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .qr-avaliacao-sub {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;
@@ -468,6 +475,7 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
     margin: 0 auto 1.5rem;
   }
   #qr-avaliacao-card .qr-avaliacao-titulo { font-size: 2rem; }
+  #qr-avaliacao-card .qr-avaliacao-setor-nome { font-size: 1.4rem; }
   #qr-avaliacao-card .qr-avaliacao-sub { font-size: 1.1rem; }
   #qr-avaliacao-card .qr-avaliacao-link-row { display: none; }
 }

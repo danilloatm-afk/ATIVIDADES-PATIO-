@@ -227,6 +227,7 @@ function atualizarCardQrSetor() {
   card.classList.remove("hidden");
   linkAvaliacaoSetorAtual = linkAvaliacaoSetor(setor.avaliacao_token);
   document.getElementById("qr-avaliacao-link").value = linkAvaliacaoSetorAtual;
+  document.getElementById("qr-avaliacao-setor-nome").textContent = `Avalie o setor de ${setor.nome}`;
   const img = document.getElementById("qr-avaliacao-setor");
   img.src = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(linkAvaliacaoSetorAtual)}`;
   img.alt = `QR code para avaliar o setor ${setor.nome}`;

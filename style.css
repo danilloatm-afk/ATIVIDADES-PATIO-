@@ -394,7 +394,7 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
   border-color: var(--primary);
 }
 
-.hidden { display: none; }
+.hidden { display: none !important; }
 
 .tela-login {
   min-height: 100vh;

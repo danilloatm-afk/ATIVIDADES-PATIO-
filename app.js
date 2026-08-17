@@ -480,10 +480,19 @@ async function loadAvaliacaoSetor() {
           <td>${formatDate(a.criado_em.slice(0, 10))}</td>
           <td>${renderEstrelas(a.nota)}</td>
           <td>${a.comentario ? escapeHtml(a.comentario) : '<span class="muted">—</span>'}</td>
+          <td>${souAdmin() ? `<button class="link-btn danger" data-id="${a.id}">excluir</button>` : ""}</td>
         </tr>`
           )
           .join("")
-      : '<tr><td colspan="3">Nenhuma avaliação de setor recebida ainda.</td></tr>';
+      : '<tr><td colspan="4">Nenhuma avaliação de setor recebida ainda.</td></tr>';
+
+    tbody.querySelectorAll(".link-btn[data-id]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (!confirm("Excluir esta avaliação de setor? Não tem como desfazer.")) return;
+        await db.from("op_avaliacoes_setor").delete().eq("id", btn.dataset.id);
+        loadAvaliacaoSetor();
+      });
+    });
   } catch (e) {
     resumo.innerHTML = `<div class="empty-state">Erro ao carregar: ${e.message}</div>`;
   }

@@ -695,13 +695,33 @@ async function loadAtividades() {
         } else if (acao === "reabrir") {
           await db.from("op_atividades").update({ status: "aberto", data_conclusao: null }).eq("id", id);
         } else if (acao === "editar-titulo") {
-          const atual = rows.find((a) => String(a.id) === String(id))?.titulo || "";
-          const novoTitulo = prompt("Novo título:", atual);
+          const atividade = rows.find((a) => String(a.id) === String(id));
+          if (!atividade) return;
+
+          const novoTitulo = prompt("Novo título:", atividade.titulo);
           if (novoTitulo === null) return;
           const tituloLimpo = novoTitulo.trim();
-          if (!tituloLimpo || tituloLimpo === atual) return;
-          const { error } = await db.from("op_atividades").update({ titulo: tituloLimpo }).eq("id", id);
-          if (error) return alert("Erro ao editar título: " + error.message);
+
+          const novoPrazoTexto = prompt("Novo prazo (dd/mm/aaaa, deixe vazio pra remover):", formatDate(atividade.prazo));
+          if (novoPrazoTexto === null) return;
+          const prazoLimpo = novoPrazoTexto.trim();
+
+          const payload = {};
+          if (tituloLimpo && tituloLimpo !== atividade.titulo) payload.titulo = tituloLimpo;
+
+          if (prazoLimpo === "") {
+            if (atividade.prazo !== null) payload.prazo = null;
+          } else {
+            const partes = prazoLimpo.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!partes) return alert("Prazo inválido. Use o formato dd/mm/aaaa.");
+            const [, d, m, y] = partes;
+            const prazoIso = `${y}-${m}-${d}`;
+            if (prazoIso !== atividade.prazo) payload.prazo = prazoIso;
+          }
+
+          if (Object.keys(payload).length === 0) return;
+          const { error } = await db.from("op_atividades").update(payload).eq("id", id);
+          if (error) return alert("Erro ao editar atividade: " + error.message);
         }
         loadAtividades();
       });

@@ -359,6 +359,32 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
 
 .cadastro-lista li.inativo { opacity: 0.5; }
 
+.cadastro-lista li.perfil-lider {
+  display: block;
+}
+
+.perfil-lider-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.perfil-setores-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.perfil-setor-check {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
 .avaliar-main {
   max-width: 480px;
   margin: 0 auto;

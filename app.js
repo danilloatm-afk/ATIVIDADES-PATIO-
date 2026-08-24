@@ -815,22 +815,60 @@ async function loadPerfis() {
 
 function renderListaPerfis() {
   const ul = document.getElementById("lista-usuarios");
+  const ativosSetores = setoresCache.filter((s) => s.ativo);
   ul.innerHTML = perfisCache
     .map((p) => {
-      const nomesSetores = p.setorIds.map((id) => escapeHtml(setoresCache.find((s) => String(s.id) === String(id))?.nome || `setor #${id}`));
-      const detalhe = p.role === "admin" ? "admin" : `líder · ${nomesSetores.length ? nomesSetores.join(", ") : "sem setor"}`;
-      return `
+      if (p.role === "admin") {
+        return `
     <li>
-      <span>${escapeHtml(p.nome)} <span class="muted">· ${detalhe}</span></span>
-      <button class="link-btn danger" data-id="${p.user_id}">remover acesso</button>
+      <span>${escapeHtml(p.nome)} <span class="muted">· admin</span></span>
+      <button class="link-btn danger" data-acao="remover" data-id="${p.user_id}">remover acesso</button>
+    </li>`;
+      }
+      const checks = ativosSetores.length
+        ? ativosSetores
+            .map(
+              (s) => `
+        <label class="perfil-setor-check">
+          <input type="checkbox" value="${s.id}" ${p.setorIds.includes(s.id) ? "checked" : ""}>
+          ${escapeHtml(s.nome)}
+        </label>`
+            )
+            .join("")
+        : '<span class="muted">Nenhum setor cadastrado</span>';
+      return `
+    <li class="perfil-lider">
+      <div class="perfil-lider-topo">
+        <span>${escapeHtml(p.nome)} <span class="muted">· líder</span></span>
+        <span>
+          <button class="link-btn" data-acao="salvar-setores" data-id="${p.user_id}">salvar setores</button>
+          <button class="link-btn danger" data-acao="remover" data-id="${p.user_id}">remover acesso</button>
+        </span>
+      </div>
+      <div class="perfil-setores-checks" data-id="${p.user_id}">${checks}</div>
     </li>`;
     })
     .join("");
-  ul.querySelectorAll(".link-btn").forEach((btn) => {
+
+  ul.querySelectorAll('[data-acao="remover"]').forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("Remover o acesso desse usuário ao painel? A conta de login continua existindo no Supabase, só perde a permissão.")) return;
       await db.from("op_perfis_setores").delete().eq("user_id", btn.dataset.id);
       await db.from("op_perfis").delete().eq("user_id", btn.dataset.id);
+      await loadPerfis();
+      renderListaPerfis();
+    });
+  });
+
+  ul.querySelectorAll('[data-acao="salvar-setores"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const uid = btn.dataset.id;
+      const container = ul.querySelector(`.perfil-setores-checks[data-id="${uid}"]`);
+      const setorIds = Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map((i) => Number(i.value));
+      if (setorIds.length === 0) return alert("Marque pelo menos um setor.");
+      await db.from("op_perfis_setores").delete().eq("user_id", uid);
+      const { error } = await db.from("op_perfis_setores").insert(setorIds.map((setor_id) => ({ user_id: uid, setor_id })));
+      if (error) return alert("Erro ao salvar setores: " + error.message);
       await loadPerfis();
       renderListaPerfis();
     });

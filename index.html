@@ -244,7 +244,7 @@
     <h2>Configurações</h2>
     <div class="cadastro-grid">
       <div class="form-card">
-        <h3>Funcionários <span id="func-setor-label" class="muted"></span></h3>
+        <h3>Funcionários</h3>
         <form id="form-funcionario" class="inline-form">
           <input type="text" id="func-nome" placeholder="Nome" required>
           <input type="text" id="func-cargo" placeholder="Cargo (opcional)">
@@ -271,7 +271,7 @@
       </div>
       <div id="card-usuarios" class="form-card hidden">
         <h3>Usuários</h3>
-        <p class="muted">Crie a conta em Supabase → Authentication → Users, copie o UID gerado e cole aqui pra dar acesso.</p>
+        <p class="muted">Crie a conta em Supabase → Authentication → Users, copie o UID gerado e cole aqui pra dar acesso. Pra dar mais setores a um líder que já existe, cole o mesmo UID de novo com os setores extras marcados.</p>
         <form id="form-usuario" class="inline-form usuario-form">
           <input type="text" id="usu-uid" placeholder="UID do usuário (Supabase Auth)" required>
           <input type="text" id="usu-nome" placeholder="Nome" required>
@@ -279,7 +279,10 @@
             <option value="lider">Líder</option>
             <option value="admin">Admin</option>
           </select>
-          <select id="usu-setor"></select>
+          <label class="usu-setor-label">
+            Setores do líder (Ctrl/Cmd clique para escolher mais de um)
+            <select id="usu-setor" multiple size="4"></select>
+          </label>
           <button type="submit" class="btn primary">Adicionar</button>
         </form>
         <ul id="lista-usuarios" class="cadastro-lista"></ul>

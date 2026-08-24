@@ -421,6 +421,16 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
   min-width: 140px;
 }
 
+.usu-setor-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 180px;
+}
+
 .link-btn-select {
   font-size: 0.78rem;
   padding: 0.15rem 0.3rem;

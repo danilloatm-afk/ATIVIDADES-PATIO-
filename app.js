@@ -27,6 +27,11 @@ async function carregarPerfil() {
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Seu usuário ainda não tem acesso liberado. Peça para o administrador te cadastrar em Configurações → Usuários.");
   meuPerfil = data;
+  if (meuPerfil.role !== "admin") {
+    const { data: vinculos, error: errVinculos } = await db.from("op_perfis_setores").select("setor_id").eq("user_id", sessaoAtual.user.id);
+    if (errVinculos) throw new Error(errVinculos.message);
+    meuPerfil.setorIds = (vinculos || []).map((v) => v.setor_id);
+  }
 }
 
 function mostrarTelaLogin() {
@@ -39,8 +44,11 @@ function aplicarPermissoesUI() {
   document.getElementById("card-setores").classList.toggle("hidden", !admin);
   document.getElementById("card-categorias").classList.toggle("hidden", !admin);
   document.getElementById("card-usuarios").classList.toggle("hidden", !admin);
-  document.getElementById("func-setor").classList.toggle("hidden", !admin);
-  document.getElementById("setor-select").disabled = !admin;
+  // Líder também pode ter mais de um setor agora, então o seletor de setor
+  // e o de setor do funcionário ficam sempre visíveis/ativos — só as
+  // opções disponíveis mudam (RLS já limita o que cada um enxerga).
+  document.getElementById("func-setor").classList.remove("hidden");
+  document.getElementById("setor-select").disabled = false;
 }
 
 async function mostrarApp() {
@@ -170,15 +178,15 @@ let setorSelecionadoId = localStorage.getItem(LS_SETOR_SELECIONADO) || "";
 
 async function loadSetores() {
   // O RLS já filtra o que volta aqui: admin recebe todos os setores,
-  // líder recebe só o próprio (política "leitura setores logado").
+  // líder recebe só os que estão vinculados a ele (tabela
+  // op_perfis_setores, política "leitura setores logado") — pode ser mais
+  // de um.
   const { data, error } = await comTimeout(db.from("op_setores").select("*").order("ativo", { ascending: false }).order("nome"));
   if (error) throw new Error(error.message);
   setoresCache = data;
 
   const ativos = setoresCache.filter((s) => s.ativo);
-  if (!souAdmin()) {
-    setorSelecionadoId = meuPerfil.setor_id ? String(meuPerfil.setor_id) : "";
-  } else if (!ativos.some((s) => String(s.id) === String(setorSelecionadoId))) {
+  if (!ativos.some((s) => String(s.id) === String(setorSelecionadoId))) {
     setorSelecionadoId = ativos[0] ? String(ativos[0].id) : "";
   }
   localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
@@ -188,14 +196,6 @@ async function loadSetores() {
     ? ativos.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("")
     : '<option value="">Nenhum setor cadastrado</option>';
   sel.value = setorSelecionadoId;
-
-  const label = document.getElementById("func-setor-label");
-  if (!souAdmin()) {
-    const meuSetor = setoresCache.find((s) => String(s.id) === String(setorSelecionadoId));
-    label.textContent = meuSetor ? `— ${meuSetor.nome}` : "";
-  } else {
-    label.textContent = "";
-  }
 }
 
 document.getElementById("setor-select").addEventListener("change", async (e) => {
@@ -310,12 +310,14 @@ function atualizarSelectsCadastro() {
   document.getElementById("fil-categoria").innerHTML =
     '<option value="">Todas as categorias</option>' + categoriasCache.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
 
+  // setoresCache já vem filtrado pelo RLS (admin vê todos, líder só os
+  // dele), então o select do funcionário usa a mesma lista pros dois papéis.
+  const ativosSetores = setoresCache.filter((s) => s.ativo);
+  const optsSetor = ativosSetores.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
+  const selFuncSetor = document.getElementById("func-setor");
+  selFuncSetor.innerHTML = optsSetor;
+  selFuncSetor.value = setorSelecionadoId;
   if (souAdmin()) {
-    const ativosSetores = setoresCache.filter((s) => s.ativo);
-    const optsSetor = ativosSetores.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("");
-    const selFuncSetor = document.getElementById("func-setor");
-    selFuncSetor.innerHTML = optsSetor;
-    selFuncSetor.value = setorSelecionadoId;
     document.getElementById("usu-setor").innerHTML = optsSetor;
   }
 }
@@ -717,7 +719,7 @@ document.getElementById("form-funcionario").addEventListener("submit", async (e)
   const nome = document.getElementById("func-nome").value.trim();
   const cargo = document.getElementById("func-cargo").value.trim();
   if (!nome) return;
-  const setorId = souAdmin() ? Number(document.getElementById("func-setor").value) : meuPerfil.setor_id;
+  const setorId = Number(document.getElementById("func-setor").value);
   if (!setorId) return alert("Selecione um setor.");
   const { error } = await db.from("op_funcionarios").insert({ nome, cargo, setor_id: setorId });
   if (error) return alert("Erro ao adicionar funcionário: " + error.message);
@@ -736,7 +738,7 @@ function renderListaFuncionarios() {
       <span>${escapeHtml(f.nome)}${f.cargo ? ` <span class="muted">· ${escapeHtml(f.cargo)}</span>` : ""}</span>
       <span>
         ${
-          souAdmin()
+          ativosSetores.length > 1
             ? `<select class="link-btn-select" data-id="${f.id}" data-acao="mudar-setor">${ativosSetores
                 .map((s) => `<option value="${s.id}" ${String(s.id) === String(f.setor_id) ? "selected" : ""}>${escapeHtml(s.nome)}</option>`)
                 .join("")}</select>`
@@ -803,15 +805,20 @@ async function loadPerfis() {
   }
   const { data, error } = await comTimeout(db.from("op_perfis").select("*").order("role").order("nome"));
   if (error) throw new Error(error.message);
-  perfisCache = data;
+  const { data: vinculos, error: errVinculos } = await comTimeout(db.from("op_perfis_setores").select("*"));
+  if (errVinculos) throw new Error(errVinculos.message);
+  perfisCache = data.map((p) => ({
+    ...p,
+    setorIds: vinculos.filter((v) => v.user_id === p.user_id).map((v) => v.setor_id),
+  }));
 }
 
 function renderListaPerfis() {
   const ul = document.getElementById("lista-usuarios");
   ul.innerHTML = perfisCache
     .map((p) => {
-      const setorNome = p.setor_id ? setoresCache.find((s) => String(s.id) === String(p.setor_id))?.nome || `setor #${p.setor_id}` : "";
-      const detalhe = p.role === "admin" ? "admin" : `líder · ${escapeHtml(setorNome)}`;
+      const nomesSetores = p.setorIds.map((id) => escapeHtml(setoresCache.find((s) => String(s.id) === String(id))?.nome || `setor #${id}`));
+      const detalhe = p.role === "admin" ? "admin" : `líder · ${nomesSetores.length ? nomesSetores.join(", ") : "sem setor"}`;
       return `
     <li>
       <span>${escapeHtml(p.nome)} <span class="muted">· ${detalhe}</span></span>
@@ -822,6 +829,7 @@ function renderListaPerfis() {
   ul.querySelectorAll(".link-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (!confirm("Remover o acesso desse usuário ao painel? A conta de login continua existindo no Supabase, só perde a permissão.")) return;
+      await db.from("op_perfis_setores").delete().eq("user_id", btn.dataset.id);
       await db.from("op_perfis").delete().eq("user_id", btn.dataset.id);
       await loadPerfis();
       renderListaPerfis();
@@ -830,7 +838,7 @@ function renderListaPerfis() {
 }
 
 document.getElementById("usu-role").addEventListener("change", (e) => {
-  document.getElementById("usu-setor").classList.toggle("hidden", e.target.value === "admin");
+  document.getElementById("usu-setor").closest("label").classList.toggle("hidden", e.target.value === "admin");
 });
 
 document.getElementById("form-usuario").addEventListener("submit", async (e) => {
@@ -838,13 +846,27 @@ document.getElementById("form-usuario").addEventListener("submit", async (e) => 
   const uid = document.getElementById("usu-uid").value.trim();
   const nome = document.getElementById("usu-nome").value.trim();
   const role = document.getElementById("usu-role").value;
-  const setorId = role === "lider" ? Number(document.getElementById("usu-setor").value) : null;
+  const setorIds = Array.from(document.getElementById("usu-setor").selectedOptions).map((o) => Number(o.value));
   if (!uid || !nome) return;
-  if (role === "lider" && !setorId) return alert("Selecione um setor para o líder.");
-  const { error } = await db.from("op_perfis").insert({ user_id: uid, nome, role, setor_id: setorId });
-  if (error) return alert("Erro ao adicionar usuário: " + error.message);
+  if (role === "lider" && setorIds.length === 0) return alert("Selecione ao menos um setor para o líder.");
+
+  // Se o UID já tem perfil (líder existente), não recria — só adiciona os
+  // setores novos marcados, mantendo os que já tinha. Assim dá pra dar mais
+  // setores a um líder repetindo o UID dele aqui com os setores extras.
+  const jaExiste = perfisCache.some((p) => p.user_id === uid);
+  if (!jaExiste) {
+    const { error } = await db.from("op_perfis").insert({ user_id: uid, nome, role });
+    if (error) return alert("Erro ao adicionar usuário: " + error.message);
+  }
+  if (role === "lider" && setorIds.length) {
+    const { error: errVinculos } = await db
+      .from("op_perfis_setores")
+      .upsert(setorIds.map((setor_id) => ({ user_id: uid, setor_id })), { onConflict: "user_id,setor_id" });
+    if (errVinculos) return alert((jaExiste ? "Erro ao adicionar setores: " : "Usuário criado, mas erro ao vincular setores: ") + errVinculos.message);
+  }
   document.getElementById("usu-uid").value = "";
   document.getElementById("usu-nome").value = "";
+  document.getElementById("usu-role").value = "lider";
   await loadPerfis();
   renderListaPerfis();
 });

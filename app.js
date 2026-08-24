@@ -825,27 +825,17 @@ function renderListaPerfis() {
       <button class="link-btn danger" data-acao="remover" data-id="${p.user_id}">remover acesso</button>
     </li>`;
       }
-      const checks = ativosSetores.length
-        ? ativosSetores
-            .map(
-              (s) => `
-        <label class="perfil-setor-check">
-          <input type="checkbox" value="${s.id}" ${p.setorIds.includes(s.id) ? "checked" : ""}>
-          ${escapeHtml(s.nome)}
-        </label>`
-            )
-            .join("")
-        : '<span class="muted">Nenhum setor cadastrado</span>';
+      const opts = ativosSetores
+        .map((s) => `<option value="${s.id}" ${p.setorIds.includes(s.id) ? "selected" : ""}>${escapeHtml(s.nome)}</option>`)
+        .join("");
       return `
     <li class="perfil-lider">
-      <div class="perfil-lider-topo">
-        <span>${escapeHtml(p.nome)} <span class="muted">· líder</span></span>
-        <span>
-          <button class="link-btn" data-acao="salvar-setores" data-id="${p.user_id}">salvar setores</button>
-          <button class="link-btn danger" data-acao="remover" data-id="${p.user_id}">remover acesso</button>
-        </span>
+      <div class="perfil-lider-nome">${escapeHtml(p.nome)} <span class="muted">· líder</span></div>
+      <select class="perfil-setor-select" data-id="${p.user_id}" multiple size="4">${opts}</select>
+      <div class="perfil-lider-acoes">
+        <button class="link-btn" data-acao="salvar-setores" data-id="${p.user_id}">salvar setores</button>
+        <button class="link-btn danger" data-acao="remover" data-id="${p.user_id}">remover acesso</button>
       </div>
-      <div class="perfil-setores-checks" data-id="${p.user_id}">${checks}</div>
     </li>`;
     })
     .join("");
@@ -863,9 +853,9 @@ function renderListaPerfis() {
   ul.querySelectorAll('[data-acao="salvar-setores"]').forEach((btn) => {
     btn.addEventListener("click", async () => {
       const uid = btn.dataset.id;
-      const container = ul.querySelector(`.perfil-setores-checks[data-id="${uid}"]`);
-      const setorIds = Array.from(container.querySelectorAll("input[type=checkbox]:checked")).map((i) => Number(i.value));
-      if (setorIds.length === 0) return alert("Marque pelo menos um setor.");
+      const sel = ul.querySelector(`.perfil-setor-select[data-id="${uid}"]`);
+      const setorIds = Array.from(sel.selectedOptions).map((o) => Number(o.value));
+      if (setorIds.length === 0) return alert("Selecione pelo menos um setor.");
       await db.from("op_perfis_setores").delete().eq("user_id", uid);
       const { error } = await db.from("op_perfis_setores").insert(setorIds.map((setor_id) => ({ user_id: uid, setor_id })));
       if (error) return alert("Erro ao salvar setores: " + error.message);

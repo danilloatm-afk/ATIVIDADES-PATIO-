@@ -153,6 +153,15 @@ function renderFormularioSetor(setor) {
     <p class="muted">Avalie o atendimento deste setor</p>
     <form id="form-avaliacao" class="form-card" style="padding:0; border:none;">
       <label>
+        Empresa
+        <select id="av-empresa" required>
+          <option value="" selected disabled>Selecione a empresa</option>
+          <option value="Dois Marcos">Dois Marcos</option>
+          <option value="Agrícola Wehrmann">Agrícola Wehrmann</option>
+          <option value="Inova Genética">Inova Genética</option>
+        </select>
+      </label>
+      <label>
         Como você avalia o setor de ${escapeHtml(setor.nome)}?
         <div id="estrelas-wrap" class="estrelas-wrap"></div>
       </label>
@@ -171,6 +180,12 @@ function renderFormularioSetor(setor) {
     e.preventDefault();
     const feedback = document.getElementById("av-feedback");
     feedback.className = "feedback";
+    const empresa = document.getElementById("av-empresa").value;
+    if (!empresa) {
+      feedback.textContent = "Selecione a empresa.";
+      feedback.className = "feedback error";
+      return;
+    }
     if (!notaSelecionada) {
       feedback.textContent = "Escolha uma nota de 1 a 5 estrelas.";
       feedback.className = "feedback error";
@@ -180,6 +195,7 @@ function renderFormularioSetor(setor) {
     try {
       const { error } = await db.from("op_avaliacoes_setor").insert({
         setor_id: setor.id,
+        empresa,
         nota: notaSelecionada,
         comentario: document.getElementById("av-comentario").value.trim(),
       });

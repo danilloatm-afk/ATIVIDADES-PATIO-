@@ -478,13 +478,14 @@ async function loadAvaliacaoSetor() {
             (a) => `
         <tr>
           <td>${formatDate(a.criado_em.slice(0, 10))}</td>
+          <td>${a.empresa ? escapeHtml(a.empresa) : '<span class="muted">—</span>'}</td>
           <td>${renderEstrelas(a.nota)}</td>
           <td>${a.comentario ? escapeHtml(a.comentario) : '<span class="muted">—</span>'}</td>
           <td>${souAdmin() ? `<button class="link-btn danger" data-id="${a.id}">excluir</button>` : ""}</td>
         </tr>`
           )
           .join("")
-      : '<tr><td colspan="4">Nenhuma avaliação de setor recebida ainda.</td></tr>';
+      : '<tr><td colspan="5">Nenhuma avaliação de setor recebida ainda.</td></tr>';
 
     tbody.querySelectorAll(".link-btn[data-id]").forEach((btn) => {
       btn.addEventListener("click", async () => {
@@ -638,6 +639,7 @@ async function loadAtividades() {
         if (a.status === "aberto") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="iniciar">iniciar</button> `;
         if (a.status === "andamento") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="concluir">concluir</button> `;
         if (a.status === "concluido") acoes += `<button class="link-btn" data-id="${a.id}" data-acao="reabrir">reabrir</button> `;
+        acoes += `<button class="link-btn" data-id="${a.id}" data-acao="editar-titulo">editar</button> `;
         if (souAdmin()) acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
 
         let avaliacao;
@@ -690,6 +692,14 @@ async function loadAtividades() {
           await db.from("op_atividades").update({ status: "concluido", data_conclusao: new Date().toISOString() }).eq("id", id);
         } else if (acao === "reabrir") {
           await db.from("op_atividades").update({ status: "aberto", data_conclusao: null }).eq("id", id);
+        } else if (acao === "editar-titulo") {
+          const atual = rows.find((a) => String(a.id) === String(id))?.titulo || "";
+          const novoTitulo = prompt("Novo título:", atual);
+          if (novoTitulo === null) return;
+          const tituloLimpo = novoTitulo.trim();
+          if (!tituloLimpo || tituloLimpo === atual) return;
+          const { error } = await db.from("op_atividades").update({ titulo: tituloLimpo }).eq("id", id);
+          if (error) return alert("Erro ao editar título: " + error.message);
         }
         loadAtividades();
       });

@@ -544,6 +544,16 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
 
 /* Exportar em PDF a lista de avaliações do setor (botão "Exportar PDF"). */
 @media print {
+  /* Força cores de tema claro na impressão, senão com o tema escuro
+     ativado o texto (claro, feito pra fundo escuro) sai quase invisível
+     no papel branco. */
+  body.imprimir-avaliacoes {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --text: #10141a;
+    --text-muted: #3f4750;
+    --border: #d0d4d9;
+  }
   body.imprimir-avaliacoes * { visibility: hidden; }
   body.imprimir-avaliacoes #imprimir-avaliacoes-area,
   body.imprimir-avaliacoes #imprimir-avaliacoes-area * { visibility: visible; }

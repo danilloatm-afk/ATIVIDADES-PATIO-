@@ -77,8 +77,8 @@ function renderFormularioAtividade(atividade) {
         </div>
       </label>
       <label>
-        Comentário (opcional)
-        <textarea id="av-comentario" rows="3" placeholder="Conte como foi o atendimento"></textarea>
+        Comentário
+        <textarea id="av-comentario" rows="3" placeholder="Conte como foi o atendimento" required></textarea>
       </label>
       <button type="submit" class="btn primary">Enviar avaliação</button>
       <p id="av-feedback" class="feedback"></p>
@@ -104,6 +104,12 @@ function renderFormularioAtividade(atividade) {
       feedback.className = "feedback error";
       return;
     }
+    const comentario = document.getElementById("av-comentario").value.trim();
+    if (!comentario) {
+      feedback.textContent = "Escreva um comentário.";
+      feedback.className = "feedback error";
+      return;
+    }
     feedback.textContent = "Enviando...";
     try {
       const { error } = await db
@@ -111,7 +117,7 @@ function renderFormularioAtividade(atividade) {
         .update({
           avaliacao_nota: notaSelecionada,
           avaliacao_resolveu: resolveuSelecionado,
-          avaliacao_comentario: document.getElementById("av-comentario").value.trim(),
+          avaliacao_comentario: comentario,
           avaliacao_respondida_em: new Date().toISOString(),
         })
         .eq("avaliacao_token", atividade.avaliacao_token);
@@ -166,8 +172,8 @@ function renderFormularioSetor(setor) {
         <div id="estrelas-wrap" class="estrelas-wrap"></div>
       </label>
       <label>
-        Comentário (opcional)
-        <textarea id="av-comentario" rows="3" placeholder="Conte como foi sua experiência"></textarea>
+        Comentário
+        <textarea id="av-comentario" rows="3" placeholder="Conte como foi sua experiência" required></textarea>
       </label>
       <button type="submit" class="btn primary">Enviar avaliação</button>
       <p id="av-feedback" class="feedback"></p>
@@ -191,13 +197,19 @@ function renderFormularioSetor(setor) {
       feedback.className = "feedback error";
       return;
     }
+    const comentario = document.getElementById("av-comentario").value.trim();
+    if (!comentario) {
+      feedback.textContent = "Escreva um comentário.";
+      feedback.className = "feedback error";
+      return;
+    }
     feedback.textContent = "Enviando...";
     try {
       const { error } = await db.from("op_avaliacoes_setor").insert({
         setor_id: setor.id,
         empresa,
         nota: notaSelecionada,
-        comentario: document.getElementById("av-comentario").value.trim(),
+        comentario,
       });
       if (error) throw new Error(error.message);
       renderObrigado(setor.nome, notaSelecionada);

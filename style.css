@@ -570,4 +570,15 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
   body.imprimir-avaliacoes #imprimir-avaliacoes-cabecalho h2 { margin: 0 0 0.25rem; }
   body.imprimir-avaliacoes #imprimir-avaliacoes-cabecalho p { margin: 0; color: #555; font-size: 0.85rem; }
   body.imprimir-avaliacoes .table-wrap-scroll { max-height: none; overflow: visible; }
+  body.imprimir-avaliacoes .table-wrap { overflow: visible; }
+  /* Coluna "Comentário" (4ª) quebra linha em vez de cortar o texto; a
+     última coluna (botão excluir) não faz sentido no papel. */
+  body.imprimir-avaliacoes #tbl-avaliacoes-setor th:nth-child(4),
+  body.imprimir-avaliacoes #tbl-avaliacoes-setor td:nth-child(4) {
+    white-space: normal;
+  }
+  body.imprimir-avaliacoes #tbl-avaliacoes-setor th:last-child,
+  body.imprimir-avaliacoes #tbl-avaliacoes-setor td:last-child {
+    display: none;
+  }
 }

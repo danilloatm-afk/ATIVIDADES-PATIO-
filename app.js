@@ -359,7 +359,21 @@ document.getElementById("btn-copiar-link-setor").addEventListener("click", async
 });
 
 document.getElementById("btn-imprimir-qr-setor").addEventListener("click", () => {
+  document.body.classList.add("imprimir-qr-setor");
   window.print();
+  document.body.classList.remove("imprimir-qr-setor");
+});
+
+document.getElementById("btn-exportar-avaliacoes-pdf").addEventListener("click", () => {
+  const setor = setoresCache.find((s) => String(s.id) === String(setorSelecionadoId));
+  const cabecalho = document.getElementById("imprimir-avaliacoes-cabecalho");
+  cabecalho.innerHTML = `
+    <h2>Avaliações do setor ${setor ? escapeHtml(setor.nome) : ""}</h2>
+    <p>Gerado em ${new Date().toLocaleDateString("pt-BR")}</p>
+  `;
+  document.body.classList.add("imprimir-avaliacoes");
+  window.print();
+  document.body.classList.remove("imprimir-avaliacoes");
 });
 
 // ---------- painel ----------

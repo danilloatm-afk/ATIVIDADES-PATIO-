@@ -49,6 +49,7 @@
     <button class="tab-btn active" data-tab="painel">Painel</button>
     <button class="tab-btn" data-tab="nova">Nova atividade</button>
     <button class="tab-btn" data-tab="atividades">Atividades</button>
+    <button class="tab-btn" data-tab="alinhamentos">Alinhamentos</button>
     <button class="tab-btn" data-tab="config">Configurações</button>
   </nav>
 </header>
@@ -238,6 +239,49 @@
             <th>Prazo</th>
             <th>Status</th>
             <th>Avaliação</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ALINHAMENTOS -->
+  <section id="tab-alinhamentos" class="tab-content">
+    <h2>Registrar alinhamento</h2>
+    <form id="form-alinhamento" class="form-card">
+      <label>
+        Colaborador (opcional)
+        <select id="alin-funcionario">
+          <option value="">Setor em geral</option>
+        </select>
+      </label>
+      <label>
+        Assunto
+        <input type="text" id="alin-assunto" placeholder="Ex: Combinado de horário de entrada" required>
+      </label>
+      <label>
+        Data
+        <input type="date" id="alin-data" required>
+      </label>
+      <label>
+        Observação
+        <textarea id="alin-observacao" rows="4" placeholder="Detalhes do que foi tratado"></textarea>
+      </label>
+      <button type="submit" class="btn primary">Salvar alinhamento</button>
+      <p id="alin-feedback" class="feedback"></p>
+    </form>
+
+    <h2 class="mt">Histórico de alinhamentos</h2>
+    <div class="table-wrap">
+      <table id="tbl-alinhamentos">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Colaborador</th>
+            <th>Assunto</th>
+            <th>Observação</th>
             <th></th>
           </tr>
         </thead>

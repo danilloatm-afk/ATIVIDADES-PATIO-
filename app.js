@@ -270,6 +270,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
     if (btn.dataset.tab === "painel") loadPainel();
     if (btn.dataset.tab === "atividades") loadAtividades();
+    if (btn.dataset.tab === "alinhamentos") loadAlinhamentos();
   });
 });
 
@@ -309,6 +310,7 @@ function atualizarSelectsCadastro() {
     '<option value="">Todos os responsáveis</option>' + funcionariosCache.map((f) => `<option value="${f.id}">${escapeHtml(f.nome)}</option>`).join("");
   document.getElementById("fil-categoria").innerHTML =
     '<option value="">Todas as categorias</option>' + categoriasCache.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("");
+  document.getElementById("alin-funcionario").innerHTML = '<option value="">Setor em geral</option>' + optsFunc;
 
   // setoresCache já vem filtrado pelo RLS (admin vê todos, líder só os
   // dele), então o select do funcionário usa a mesma lista pros dois papéis.
@@ -746,6 +748,120 @@ async function loadAtividades() {
 }
 
 document.getElementById("btn-filtrar-atividades").addEventListener("click", loadAtividades);
+
+// ---------- alinhamentos ----------
+document.getElementById("alin-data").valueAsDate = new Date();
+
+document.getElementById("form-alinhamento").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const feedback = document.getElementById("alin-feedback");
+  feedback.textContent = "";
+  feedback.className = "feedback";
+
+  if (!setorSelecionadoId) {
+    feedback.textContent = "Selecione um setor no topo da tela antes de registrar um alinhamento.";
+    feedback.className = "feedback error";
+    return;
+  }
+
+  const assunto = document.getElementById("alin-assunto").value.trim();
+  if (!assunto) return;
+
+  const payload = {
+    setor_id: Number(setorSelecionadoId),
+    funcionario_id: document.getElementById("alin-funcionario").value || null,
+    assunto,
+    data: document.getElementById("alin-data").value,
+    observacao: document.getElementById("alin-observacao").value.trim(),
+  };
+
+  try {
+    const { error } = await db.from("op_alinhamentos").insert(payload);
+    if (error) throw new Error(error.message);
+    feedback.textContent = "Alinhamento registrado com sucesso!";
+    feedback.className = "feedback success";
+    document.getElementById("form-alinhamento").reset();
+    document.getElementById("alin-data").valueAsDate = new Date();
+    loadAlinhamentos();
+  } catch (err) {
+    feedback.textContent = "Erro: " + err.message;
+    feedback.className = "feedback error";
+  }
+});
+
+async function loadAlinhamentos() {
+  const tbody = document.querySelector("#tbl-alinhamentos tbody");
+  if (!setorSelecionadoId) {
+    tbody.innerHTML = '<tr><td colspan="5">Nenhum setor selecionado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '<tr><td colspan="5">Carregando...</td></tr>';
+
+  try {
+    const { data: rows, error } = await comTimeout(
+      db
+        .from("op_alinhamentos")
+        .select("*, op_funcionarios(nome)")
+        .eq("setor_id", setorSelecionadoId)
+        .order("data", { ascending: false })
+        .order("id", { ascending: false })
+    );
+    if (error) throw new Error(error.message);
+
+    if (rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="5">Nenhum alinhamento registrado ainda.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows
+      .map((a) => {
+        let acoes = `<button class="link-btn" data-id="${a.id}" data-acao="editar">editar</button> `;
+        if (souAdmin()) acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
+        return `
+        <tr>
+          <td>${formatDate(a.data)}</td>
+          <td>${escapeHtml(a.op_funcionarios?.nome || "Setor em geral")}</td>
+          <td>${escapeHtml(a.assunto)}</td>
+          <td class="observacao">${a.observacao ? escapeHtml(a.observacao) : '<span class="muted">—</span>'}</td>
+          <td class="acoes">${acoes}</td>
+        </tr>`;
+      })
+      .join("");
+
+    tbody.querySelectorAll(".link-btn[data-acao]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const id = btn.dataset.id;
+        const acao = btn.dataset.acao;
+        if (acao === "excluir") {
+          if (!confirm("Excluir este alinhamento?")) return;
+          await db.from("op_alinhamentos").delete().eq("id", id);
+        } else if (acao === "editar") {
+          const alinhamento = rows.find((a) => String(a.id) === String(id));
+          if (!alinhamento) return;
+
+          const novoAssunto = prompt("Assunto:", alinhamento.assunto);
+          if (novoAssunto === null) return;
+          const assuntoLimpo = novoAssunto.trim();
+          if (!assuntoLimpo) return alert("O assunto não pode ficar vazio.");
+
+          const novaObs = prompt("Observação:", alinhamento.observacao);
+          if (novaObs === null) return;
+
+          const payload = {};
+          if (assuntoLimpo !== alinhamento.assunto) payload.assunto = assuntoLimpo;
+          if (novaObs.trim() !== alinhamento.observacao) payload.observacao = novaObs.trim();
+
+          if (Object.keys(payload).length === 0) return;
+          const { error } = await db.from("op_alinhamentos").update(payload).eq("id", id);
+          if (error) return alert("Erro ao editar alinhamento: " + error.message);
+        }
+        loadAlinhamentos();
+      });
+    });
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5">Erro: ${e.message}</td></tr>`;
+  }
+}
 
 // ---------- cadastros: funcionarios ----------
 document.getElementById("form-funcionario").addEventListener("submit", async (e) => {

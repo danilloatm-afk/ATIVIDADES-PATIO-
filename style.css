@@ -277,6 +277,7 @@ th, td {
 }
 
 td:first-child { white-space: normal; min-width: 180px; }
+td.observacao { white-space: normal; min-width: 220px; }
 
 th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
 

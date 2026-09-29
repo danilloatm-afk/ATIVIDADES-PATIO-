@@ -231,6 +231,15 @@ async function iniciarAvaliacaoSetor(token) {
 }
 
 (async function init() {
+  // Esta página é pública (o cliente nunca faz login). Se o mesmo
+  // navegador/celular tiver uma sessão ativa do painel interno (ex: um
+  // líder testando o link no próprio aparelho), o Supabase manda as
+  // requisições daqui como "logado" em vez de anônimo — e as regras de
+  // segurança da avaliação só liberam pra anônimo de propósito. Por isso,
+  // sempre encerra qualquer sessão antes de continuar.
+  const { data: sessaoAtual } = await db.auth.getSession();
+  if (sessaoAtual.session) await db.auth.signOut();
+
   const params = new URLSearchParams(location.search);
   const tokenAtividade = params.get("t");
   const tokenSetor = params.get("s");

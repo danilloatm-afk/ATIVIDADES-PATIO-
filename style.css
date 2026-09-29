@@ -595,3 +595,30 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
     display: none;
   }
 }
+
+/* Exportar em PDF a ata de um alinhamento específico (botão "PDF" na linha
+   do histórico). */
+@media print {
+  body.imprimir-alinhamento {
+    --bg: #ffffff;
+    --surface: #ffffff;
+    --text: #10141a;
+    --text-muted: #3f4750;
+    --border: #d0d4d9;
+  }
+  body.imprimir-alinhamento * { visibility: hidden; }
+  body.imprimir-alinhamento #imprimir-alinhamento-area,
+  body.imprimir-alinhamento #imprimir-alinhamento-area * { visibility: visible; }
+  body.imprimir-alinhamento #imprimir-alinhamento-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+  body.imprimir-alinhamento #imprimir-alinhamento-conteudo h2 { margin: 0 0 0.25rem; }
+  body.imprimir-alinhamento #imprimir-alinhamento-conteudo p.muted { margin: 0 0 1.25rem; color: #555; font-size: 0.85rem; }
+  body.imprimir-alinhamento #imprimir-alinhamento-conteudo .ata-texto {
+    white-space: pre-wrap;
+    line-height: 1.5;
+  }
+}

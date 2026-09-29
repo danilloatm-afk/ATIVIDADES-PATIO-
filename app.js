@@ -930,6 +930,7 @@ async function loadAlinhamentos() {
     tbody.innerHTML = rows
       .map((a) => {
         let acoes = `<button class="link-btn" data-id="${a.id}" data-acao="editar">editar</button> `;
+        acoes += `<button class="link-btn" data-id="${a.id}" data-acao="pdf">PDF</button> `;
         if (souAdmin()) acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
         const audioTag = a.audio_path
           ? `<audio controls preload="none" src="${SUPABASE_URL}/storage/v1/object/public/op_audios/${escapeHtml(a.audio_path)}"></audio>`
@@ -949,6 +950,20 @@ async function loadAlinhamentos() {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.id;
         const acao = btn.dataset.acao;
+        if (acao === "pdf") {
+          const alinhamento = rows.find((a) => String(a.id) === String(id));
+          if (!alinhamento) return;
+          const nomeColaborador = alinhamento.op_funcionarios?.nome || "Setor em geral";
+          document.getElementById("imprimir-alinhamento-conteudo").innerHTML = `
+            <h2>${escapeHtml(alinhamento.assunto)}</h2>
+            <p class="muted">${escapeHtml(nomeColaborador)} · ${formatDate(alinhamento.data)}</p>
+            <div class="ata-texto">${alinhamento.observacao ? escapeHtml(alinhamento.observacao) : "Sem observação registrada."}</div>
+          `;
+          document.body.classList.add("imprimir-alinhamento");
+          window.print();
+          document.body.classList.remove("imprimir-alinhamento");
+          return;
+        }
         if (acao === "excluir") {
           if (!confirm("Excluir este alinhamento?")) return;
           await db.from("op_alinhamentos").delete().eq("id", id);

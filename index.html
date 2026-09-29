@@ -257,6 +257,13 @@
           <option value="">Setor em geral</option>
         </select>
       </label>
+      <div class="gravacao-audio">
+        <button id="btn-gravar-audio" type="button" class="btn secondary small">🎙️ Gravar conversa</button>
+        <button id="btn-parar-gravacao" type="button" class="btn secondary small hidden">⏹️ Parar (<span id="gravacao-timer">00:00</span>)</button>
+        <button id="btn-transcrever-audio" type="button" class="btn secondary small hidden">✨ Transcrever com IA</button>
+        <span id="gravacao-status" class="muted"></span>
+      </div>
+      <audio id="audio-preview" class="hidden" controls></audio>
       <label>
         Assunto
         <input type="text" id="alin-assunto" placeholder="Ex: Combinado de horário de entrada" required>

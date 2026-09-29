@@ -752,6 +752,116 @@ document.getElementById("btn-filtrar-atividades").addEventListener("click", load
 // ---------- alinhamentos ----------
 document.getElementById("alin-data").valueAsDate = new Date();
 
+// ---------- gravação + transcrição por IA do alinhamento ----------
+let mediaRecorderAlinhamento = null;
+let audioChunksAlinhamento = [];
+let audioBlobAlinhamento = null;
+let audioPathAlinhamento = null;
+let gravacaoInicioTs = null;
+let gravacaoTimerInterval = null;
+
+function formatarTimer(segundosTotais) {
+  const m = String(Math.floor(segundosTotais / 60)).padStart(2, "0");
+  const s = String(segundosTotais % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function resetarGravacaoAlinhamento() {
+  audioChunksAlinhamento = [];
+  audioBlobAlinhamento = null;
+  audioPathAlinhamento = null;
+  document.getElementById("audio-preview").classList.add("hidden");
+  document.getElementById("audio-preview").src = "";
+  document.getElementById("btn-transcrever-audio").classList.add("hidden");
+  document.getElementById("btn-gravar-audio").classList.remove("hidden");
+  document.getElementById("btn-parar-gravacao").classList.add("hidden");
+  document.getElementById("gravacao-status").textContent = "";
+  document.getElementById("gravacao-timer").textContent = "00:00";
+}
+
+document.getElementById("btn-gravar-audio").addEventListener("click", async () => {
+  const status = document.getElementById("gravacao-status");
+  status.textContent = "";
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    status.textContent = "Seu navegador não suporta gravação de áudio.";
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioChunksAlinhamento = [];
+    mediaRecorderAlinhamento = new MediaRecorder(stream);
+    mediaRecorderAlinhamento.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksAlinhamento.push(e.data);
+    };
+    mediaRecorderAlinhamento.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      audioBlobAlinhamento = new Blob(audioChunksAlinhamento, { type: "audio/webm" });
+      const preview = document.getElementById("audio-preview");
+      preview.src = URL.createObjectURL(audioBlobAlinhamento);
+      preview.classList.remove("hidden");
+      document.getElementById("btn-transcrever-audio").classList.remove("hidden");
+    };
+    mediaRecorderAlinhamento.start();
+    gravacaoInicioTs = Date.now();
+    document.getElementById("gravacao-timer").textContent = "00:00";
+    clearInterval(gravacaoTimerInterval);
+    gravacaoTimerInterval = setInterval(() => {
+      document.getElementById("gravacao-timer").textContent = formatarTimer(Math.floor((Date.now() - gravacaoInicioTs) / 1000));
+    }, 1000);
+    document.getElementById("btn-gravar-audio").classList.add("hidden");
+    document.getElementById("btn-parar-gravacao").classList.remove("hidden");
+    document.getElementById("btn-transcrever-audio").classList.add("hidden");
+    document.getElementById("audio-preview").classList.add("hidden");
+    audioPathAlinhamento = null;
+  } catch (err) {
+    status.textContent = "Não foi possível acessar o microfone: " + err.message;
+  }
+});
+
+document.getElementById("btn-parar-gravacao").addEventListener("click", () => {
+  if (mediaRecorderAlinhamento && mediaRecorderAlinhamento.state !== "inactive") {
+    mediaRecorderAlinhamento.stop();
+  }
+  clearInterval(gravacaoTimerInterval);
+  document.getElementById("btn-parar-gravacao").classList.add("hidden");
+  document.getElementById("btn-gravar-audio").classList.remove("hidden");
+});
+
+document.getElementById("btn-transcrever-audio").addEventListener("click", async () => {
+  if (!audioBlobAlinhamento) return;
+  const status = document.getElementById("gravacao-status");
+  const btn = document.getElementById("btn-transcrever-audio");
+  btn.disabled = true;
+  status.textContent = "Enviando áudio...";
+  try {
+    const nomeArquivo = `${crypto.randomUUID()}.webm`;
+    const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: "audio/webm" });
+    if (erroUpload) throw new Error("Erro ao enviar áudio: " + erroUpload.message);
+    audioPathAlinhamento = nomeArquivo;
+    const audioUrl = `${SUPABASE_URL}/storage/v1/object/public/op_audios/${nomeArquivo}`;
+
+    status.textContent = "Transcrevendo com IA (pode levar um minuto)...";
+    const resp = await fetch("/api/transcrever", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audioUrl }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || "Erro ao transcrever.");
+
+    if (data.assunto && !document.getElementById("alin-assunto").value.trim()) {
+      document.getElementById("alin-assunto").value = data.assunto;
+    }
+    const obsAtual = document.getElementById("alin-observacao").value.trim();
+    document.getElementById("alin-observacao").value = obsAtual ? obsAtual + "\n\n" + data.ata : data.ata;
+    status.textContent = "Transcrição pronta — revise o texto antes de salvar.";
+  } catch (err) {
+    status.textContent = "Erro: " + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById("form-alinhamento").addEventListener("submit", async (e) => {
   e.preventDefault();
   const feedback = document.getElementById("alin-feedback");
@@ -773,6 +883,7 @@ document.getElementById("form-alinhamento").addEventListener("submit", async (e)
     assunto,
     data: document.getElementById("alin-data").value,
     observacao: document.getElementById("alin-observacao").value.trim(),
+    audio_path: audioPathAlinhamento,
   };
 
   try {
@@ -781,6 +892,7 @@ document.getElementById("form-alinhamento").addEventListener("submit", async (e)
     feedback.textContent = "Alinhamento registrado com sucesso!";
     feedback.className = "feedback success";
     document.getElementById("form-alinhamento").reset();
+    resetarGravacaoAlinhamento();
     document.getElementById("alin-data").valueAsDate = new Date();
     loadAlinhamentos();
   } catch (err) {
@@ -817,12 +929,15 @@ async function loadAlinhamentos() {
       .map((a) => {
         let acoes = `<button class="link-btn" data-id="${a.id}" data-acao="editar">editar</button> `;
         if (souAdmin()) acoes += `<button class="link-btn danger" data-id="${a.id}" data-acao="excluir">excluir</button>`;
+        const audioTag = a.audio_path
+          ? `<audio controls preload="none" src="${SUPABASE_URL}/storage/v1/object/public/op_audios/${escapeHtml(a.audio_path)}"></audio>`
+          : "";
         return `
         <tr>
           <td>${formatDate(a.data)}</td>
           <td>${escapeHtml(a.op_funcionarios?.nome || "Setor em geral")}</td>
           <td>${escapeHtml(a.assunto)}</td>
-          <td class="observacao">${a.observacao ? escapeHtml(a.observacao) : '<span class="muted">—</span>'}</td>
+          <td class="observacao">${a.observacao ? escapeHtml(a.observacao).replace(/\n/g, "<br>") : '<span class="muted">—</span>'}${audioTag}</td>
           <td class="acoes">${acoes}</td>
         </tr>`;
       })

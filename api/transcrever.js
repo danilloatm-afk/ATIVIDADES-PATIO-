@@ -4,6 +4,19 @@
 // ata curta. A chave da OpenAI fica só aqui no servidor (variável de
 // ambiente OPENAI_API_KEY no projeto Vercel) — nunca é exposta no navegador.
 
+// Converte qualquer coisa (string, objeto, lista) num texto legível, caso
+// a IA devolva a "ata" estruturada em vez de uma string simples.
+function textoDeQualquerCoisa(valor) {
+  if (typeof valor === "string") return valor;
+  if (Array.isArray(valor)) return valor.map((v) => `- ${textoDeQualquerCoisa(v)}`).join("\n");
+  if (valor && typeof valor === "object") {
+    return Object.entries(valor)
+      .map(([chave, sub]) => `${chave}:\n${textoDeQualquerCoisa(sub)}`)
+      .join("\n\n");
+  }
+  return valor == null ? "" : String(valor);
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método não permitido." });
@@ -52,7 +65,7 @@ module.exports = async (req, res) => {
           {
             role: "system",
             content:
-              'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."}. "assunto" é um título bem curto (até 8 palavras) resumindo o tema principal. "ata" é o corpo organizado em tópicos, no formato: "Resumo:" (1-2 frases), "Pontos discutidos:" (lista com "- "), "Combinados/ações:" (lista com "- ", ou "Nenhum combinado registrado" se não houve nenhum). Seja fiel ao conteúdo da transcrição, não invente informação que não está nela.',
+              'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema principal. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases), depois uma linha em branco, "Pontos discutidos:" (linhas começando com "- "), depois uma linha em branco, "Combinados/ações:" (linhas começando com "- ", ou "Nenhum combinado registrado" se não houve nenhum). Seja fiel ao conteúdo da transcrição, não invente informação que não está nela.',
           },
           { role: "user", content: transcricao },
         ],
@@ -64,8 +77,15 @@ module.exports = async (req, res) => {
     let ata = transcricao;
     try {
       const parsed = JSON.parse(ataData.choices?.[0]?.message?.content || "{}");
-      assunto = parsed.assunto || "";
-      ata = parsed.ata || ata;
+      assunto = typeof parsed.assunto === "string" ? parsed.assunto : textoDeQualquerCoisa(parsed.assunto) || "";
+      if (typeof parsed.ata === "string") {
+        ata = parsed.ata;
+      } else if (parsed.ata && typeof parsed.ata === "object") {
+        // Salvaguarda: se a IA devolver "ata" como objeto/lista em vez de
+        // string (já aconteceu), monta um texto legível a partir dele em
+        // vez de deixar "[object Object]" cair na tela do usuário.
+        ata = textoDeQualquerCoisa(parsed.ata);
+      }
     } catch {
       ata = ataData.choices?.[0]?.message?.content || ata;
     }

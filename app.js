@@ -849,11 +849,13 @@ document.getElementById("btn-transcrever-audio").addEventListener("click", async
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Erro ao transcrever.");
 
-    if (data.assunto && !document.getElementById("alin-assunto").value.trim()) {
-      document.getElementById("alin-assunto").value = data.assunto;
+    const assuntoTexto = typeof data.assunto === "string" ? data.assunto : "";
+    if (assuntoTexto && !document.getElementById("alin-assunto").value.trim()) {
+      document.getElementById("alin-assunto").value = assuntoTexto;
     }
+    const ataTexto = typeof data.ata === "string" ? data.ata : JSON.stringify(data.ata, null, 2);
     const obsAtual = document.getElementById("alin-observacao").value.trim();
-    document.getElementById("alin-observacao").value = obsAtual ? obsAtual + "\n\n" + data.ata : data.ata;
+    document.getElementById("alin-observacao").value = obsAtual ? obsAtual + "\n\n" + ataTexto : ataTexto;
     status.textContent = "Transcrição pronta — revise o texto antes de salvar.";
   } catch (err) {
     status.textContent = "Erro: " + err.message;

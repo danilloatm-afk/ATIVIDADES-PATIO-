@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/transcrever.js": {
+      "maxDuration": 300
+    }
+  }
+}

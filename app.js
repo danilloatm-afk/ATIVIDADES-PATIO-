@@ -1033,7 +1033,19 @@ document.getElementById("btn-transcrever-audio").addEventListener("click", async
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ audioUrl }),
     });
-    const data = await resp.json();
+    const textoResp = await resp.text();
+    let data;
+    try {
+      data = JSON.parse(textoResp);
+    } catch {
+      // O servidor devolveu algo que não é JSON (ex: página de erro/timeout
+      // da própria Vercel) — provavelmente a transcrição demorou demais.
+      throw new Error(
+        resp.status === 504 || resp.status === 0
+          ? "O servidor demorou demais pra transcrever (áudio muito longo). Tente um áudio mais curto."
+          : `Resposta inesperada do servidor (status ${resp.status}).`
+      );
+    }
     if (!resp.ok) throw new Error(data.error || "Erro ao transcrever.");
 
     const assuntoTexto = typeof data.assunto === "string" ? data.assunto : "";

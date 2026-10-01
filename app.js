@@ -798,6 +798,23 @@ function resetarGravacaoAlinhamento() {
   document.getElementById("gravacao-timer").textContent = "00:00";
 }
 
+// Sobe audioBlobAlinhamento pro bucket op_audios (se ainda não tiver sido
+// enviado) e devolve a URL pública. Usada tanto logo após a gravação quanto
+// como retry dentro do botão "Transcrever com IA" caso o upload automático
+// tenha falhado.
+async function garantirAudioEnviado() {
+  if (audioPathAlinhamento) {
+    return `${SUPABASE_URL}/storage/v1/object/public/op_audios/${audioPathAlinhamento}`;
+  }
+  if (!audioBlobAlinhamento) throw new Error("Nenhum áudio gravado.");
+  const tipoAudio = audioBlobAlinhamento.type || mimeTypeGravacaoAtual || "audio/webm";
+  const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;
+  const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: tipoAudio });
+  if (erroUpload) throw new Error("Erro ao enviar áudio: " + erroUpload.message);
+  audioPathAlinhamento = nomeArquivo;
+  return `${SUPABASE_URL}/storage/v1/object/public/op_audios/${nomeArquivo}`;
+}
+
 document.getElementById("btn-gravar-audio").addEventListener("click", async () => {
   const status = document.getElementById("gravacao-status");
   status.textContent = "";
@@ -818,13 +835,23 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
     mediaRecorderAlinhamento.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunksAlinhamento.push(e.data);
     };
-    mediaRecorderAlinhamento.onstop = () => {
+    mediaRecorderAlinhamento.onstop = async () => {
       stream.getTracks().forEach((t) => t.stop());
       audioBlobAlinhamento = new Blob(audioChunksAlinhamento, { type: mimeTypeGravacaoAtual });
       const preview = document.getElementById("audio-preview");
       preview.src = URL.createObjectURL(audioBlobAlinhamento);
       preview.classList.remove("hidden");
       document.getElementById("btn-transcrever-audio").classList.remove("hidden");
+
+      // Sobe o áudio pro Storage assim que a gravação termina, sem esperar
+      // o usuário clicar em "Transcrever com IA" — se ele salvar o
+      // alinhamento sem transcrever, o áudio ainda assim fica anexado.
+      try {
+        await garantirAudioEnviado();
+        status.textContent = "Áudio salvo. Clique em \"Transcrever com IA\" para gerar a ata automaticamente, ou salve o alinhamento direto.";
+      } catch (err) {
+        status.textContent = "Gravação pronta, mas houve erro ao salvar o áudio: " + err.message;
+      }
     };
     mediaRecorderAlinhamento.start();
     gravacaoInicioTs = Date.now();
@@ -859,12 +886,7 @@ document.getElementById("btn-transcrever-audio").addEventListener("click", async
   btn.disabled = true;
   status.textContent = "Enviando áudio...";
   try {
-    const tipoAudio = audioBlobAlinhamento.type || mimeTypeGravacaoAtual || "audio/webm";
-    const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;
-    const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: tipoAudio });
-    if (erroUpload) throw new Error("Erro ao enviar áudio: " + erroUpload.message);
-    audioPathAlinhamento = nomeArquivo;
-    const audioUrl = `${SUPABASE_URL}/storage/v1/object/public/op_audios/${nomeArquivo}`;
+    const audioUrl = await garantirAudioEnviado();
 
     status.textContent = "Transcrevendo com IA (pode levar um minuto)...";
     const resp = await fetch("/api/transcrever", {

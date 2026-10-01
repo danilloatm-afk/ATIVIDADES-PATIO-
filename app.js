@@ -771,6 +771,12 @@ function mimeTypeSuportadoGravacao() {
   return candidatos.find((tipo) => MediaRecorder.isTypeSupported(tipo)) || "";
 }
 
+// Taxa de bits baixa o suficiente pra voz continuar inteligível, mas que
+// mantém reuniões longas dentro do limite de 25MB que o Whisper aceita por
+// arquivo (uma reunião de 2h de áudio contínuo já tinha estourado isso).
+const BITRATE_GRAVACAO = 24000;
+const LIMITE_BYTES_AUDIO = 24 * 1024 * 1024;
+
 function extensaoPara(mimeType) {
   if (mimeType.includes("mp4")) return "mp4";
   if (mimeType.includes("ogg")) return "ogg";
@@ -807,6 +813,9 @@ async function garantirAudioEnviado() {
     return `${SUPABASE_URL}/storage/v1/object/public/op_audios/${audioPathAlinhamento}`;
   }
   if (!audioBlobAlinhamento) throw new Error("Nenhum áudio gravado.");
+  if (audioBlobAlinhamento.size > LIMITE_BYTES_AUDIO) {
+    throw new Error("Gravação muito longa/grande para a IA transcrever (limite ~25MB). Grave a reunião em partes menores.");
+  }
   const tipoAudio = audioBlobAlinhamento.type || mimeTypeGravacaoAtual || "audio/webm";
   const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;
   const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: tipoAudio });
@@ -827,8 +836,8 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
     audioChunksAlinhamento = [];
     mimeTypeGravacaoAtual = mimeTypeSuportadoGravacao();
     mediaRecorderAlinhamento = mimeTypeGravacaoAtual
-      ? new MediaRecorder(stream, { mimeType: mimeTypeGravacaoAtual })
-      : new MediaRecorder(stream);
+      ? new MediaRecorder(stream, { mimeType: mimeTypeGravacaoAtual, audioBitsPerSecond: BITRATE_GRAVACAO })
+      : new MediaRecorder(stream, { audioBitsPerSecond: BITRATE_GRAVACAO });
     // Em alguns navegadores (ex. iOS Safari) o mimeType efetivo só fica
     // disponível depois de criado o MediaRecorder, mesmo sem passar opções.
     mimeTypeGravacaoAtual = mediaRecorderAlinhamento.mimeType || mimeTypeGravacaoAtual || "audio/webm";
@@ -857,8 +866,16 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
     gravacaoInicioTs = Date.now();
     document.getElementById("gravacao-timer").textContent = "00:00";
     clearInterval(gravacaoTimerInterval);
+    let avisoLimiteMostrado = false;
     gravacaoTimerInterval = setInterval(() => {
-      document.getElementById("gravacao-timer").textContent = formatarTimer(Math.floor((Date.now() - gravacaoInicioTs) / 1000));
+      const segundos = Math.floor((Date.now() - gravacaoInicioTs) / 1000);
+      document.getElementById("gravacao-timer").textContent = formatarTimer(segundos);
+      // Com a taxa de bits reduzida (BITRATE_GRAVACAO), ~2h de gravação já
+      // chega perto do limite de 25MB do Whisper — avisa antes de estourar.
+      if (!avisoLimiteMostrado && segundos > 7000) {
+        avisoLimiteMostrado = true;
+        status.textContent = "Gravação longa — perto do limite da IA (~2h). Considere parar e começar um novo alinhamento.";
+      }
     }, 1000);
     document.getElementById("btn-gravar-audio").classList.add("hidden");
     document.getElementById("btn-parar-gravacao").classList.remove("hidden");

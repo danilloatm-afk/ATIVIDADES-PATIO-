@@ -759,6 +759,24 @@ let audioBlobAlinhamento = null;
 let audioPathAlinhamento = null;
 let gravacaoInicioTs = null;
 let gravacaoTimerInterval = null;
+let mimeTypeGravacaoAtual = "";
+
+// O Chrome grava em audio/webm, mas o Safari/iOS não suporta webm — grava
+// em audio/mp4 (ou nada, se nenhum dos dois funcionar). Fixar "webm" sempre
+// quebrava no iPhone; aqui pergunta pro navegador qual formato ele
+// realmente consegue gravar antes de começar.
+function mimeTypeSuportadoGravacao() {
+  if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return "";
+  const candidatos = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/aac", "audio/ogg;codecs=opus"];
+  return candidatos.find((tipo) => MediaRecorder.isTypeSupported(tipo)) || "";
+}
+
+function extensaoPara(mimeType) {
+  if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("aac")) return "aac";
+  return "webm";
+}
 
 function formatarTimer(segundosTotais) {
   const m = String(Math.floor(segundosTotais / 60)).padStart(2, "0");
@@ -770,6 +788,7 @@ function resetarGravacaoAlinhamento() {
   audioChunksAlinhamento = [];
   audioBlobAlinhamento = null;
   audioPathAlinhamento = null;
+  mimeTypeGravacaoAtual = "";
   document.getElementById("audio-preview").classList.add("hidden");
   document.getElementById("audio-preview").src = "";
   document.getElementById("btn-transcrever-audio").classList.add("hidden");
@@ -789,13 +808,19 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioChunksAlinhamento = [];
-    mediaRecorderAlinhamento = new MediaRecorder(stream);
+    mimeTypeGravacaoAtual = mimeTypeSuportadoGravacao();
+    mediaRecorderAlinhamento = mimeTypeGravacaoAtual
+      ? new MediaRecorder(stream, { mimeType: mimeTypeGravacaoAtual })
+      : new MediaRecorder(stream);
+    // Em alguns navegadores (ex. iOS Safari) o mimeType efetivo só fica
+    // disponível depois de criado o MediaRecorder, mesmo sem passar opções.
+    mimeTypeGravacaoAtual = mediaRecorderAlinhamento.mimeType || mimeTypeGravacaoAtual || "audio/webm";
     mediaRecorderAlinhamento.ondataavailable = (e) => {
       if (e.data.size > 0) audioChunksAlinhamento.push(e.data);
     };
     mediaRecorderAlinhamento.onstop = () => {
       stream.getTracks().forEach((t) => t.stop());
-      audioBlobAlinhamento = new Blob(audioChunksAlinhamento, { type: "audio/webm" });
+      audioBlobAlinhamento = new Blob(audioChunksAlinhamento, { type: mimeTypeGravacaoAtual });
       const preview = document.getElementById("audio-preview");
       preview.src = URL.createObjectURL(audioBlobAlinhamento);
       preview.classList.remove("hidden");
@@ -834,8 +859,9 @@ document.getElementById("btn-transcrever-audio").addEventListener("click", async
   btn.disabled = true;
   status.textContent = "Enviando áudio...";
   try {
-    const nomeArquivo = `${crypto.randomUUID()}.webm`;
-    const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: "audio/webm" });
+    const tipoAudio = audioBlobAlinhamento.type || mimeTypeGravacaoAtual || "audio/webm";
+    const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;
+    const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: tipoAudio });
     if (erroUpload) throw new Error("Erro ao enviar áudio: " + erroUpload.message);
     audioPathAlinhamento = nomeArquivo;
     const audioUrl = `${SUPABASE_URL}/storage/v1/object/public/op_audios/${nomeArquivo}`;

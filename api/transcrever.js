@@ -39,10 +39,18 @@ module.exports = async (req, res) => {
     const audioResp = await fetch(audioUrl);
     if (!audioResp.ok) throw new Error("Não foi possível baixar o áudio enviado.");
     const audioBuffer = await audioResp.arrayBuffer();
-    const audioBlob = new Blob([audioBuffer], { type: audioResp.headers.get("content-type") || "audio/webm" });
+    const tipoAudio = audioResp.headers.get("content-type") || "audio/webm";
+    const audioBlob = new Blob([audioBuffer], { type: tipoAudio });
+
+    // O Whisper usa a extensão do nome do arquivo pra saber o formato —
+    // mandar sempre "audio.webm" quebrava áudios gravados no iPhone (que
+    // chegam como audio/mp4). Deriva a extensão real do content-type.
+    const extensaoPorTipo = { "audio/mp4": "mp4", "audio/aac": "aac", "audio/ogg": "ogg", "audio/webm": "webm" };
+    const tipoBase = tipoAudio.split(";")[0].trim();
+    const extensao = extensaoPorTipo[tipoBase] || (audioUrl.match(/\.(\w+)$/)?.[1] ?? "webm");
 
     const formData = new FormData();
-    formData.append("file", audioBlob, "audio.webm");
+    formData.append("file", audioBlob, `audio.${extensao}`);
     formData.append("model", "whisper-1");
     formData.append("language", "pt");
 

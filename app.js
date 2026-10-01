@@ -949,6 +949,28 @@ document.getElementById("btn-parar-gravacao").addEventListener("click", () => {
   document.getElementById("btn-gravar-audio").classList.remove("hidden");
 });
 
+document.getElementById("btn-usar-audio-arquivo").addEventListener("click", () => {
+  document.getElementById("input-audio-arquivo").click();
+});
+
+document.getElementById("input-audio-arquivo").addEventListener("change", (e) => {
+  const arquivo = e.target.files[0];
+  e.target.value = "";
+  if (!arquivo) return;
+  audioBlobAlinhamento = arquivo;
+  mimeTypeGravacaoAtual = arquivo.type || "audio/webm";
+  audioPathAlinhamento = null;
+  const preview = document.getElementById("audio-preview");
+  preview.src = URL.createObjectURL(arquivo);
+  preview.classList.remove("hidden");
+  document.getElementById("btn-transcrever-audio").classList.remove("hidden");
+  const tamanhoMB = (arquivo.size / 1024 / 1024).toFixed(1);
+  document.getElementById("gravacao-status").textContent =
+    arquivo.size > LIMITE_BYTES_AUDIO
+      ? `Arquivo carregado (${tamanhoMB}MB) — acima do limite da IA, será comprimido automaticamente ao transcrever/salvar.`
+      : `Arquivo carregado (${tamanhoMB}MB). Pode transcrever com IA ou salvar direto.`;
+});
+
 document.getElementById("btn-transcrever-audio").addEventListener("click", async () => {
   if (!audioBlobAlinhamento) return;
   const status = document.getElementById("gravacao-status");

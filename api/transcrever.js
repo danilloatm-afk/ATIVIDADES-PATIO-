@@ -17,6 +17,49 @@ function textoDeQualquerCoisa(valor) {
   return valor == null ? "" : String(valor);
 }
 
+// Manda a transcrição (de um áudio só, ou já concatenada de várias partes)
+// pro GPT formatar como ata curta. Extraído num helper porque é usado tanto
+// no fluxo normal (1 áudio) quanto no fluxo de consolidação final (várias
+// transcrições de uma reunião longa dividida em pedaços).
+async function formatarAta(apiKey, transcricao) {
+  const ataResp = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      messages: [
+        {
+          role: "system",
+          content:
+            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema principal. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases), depois uma linha em branco, "Pontos discutidos:" (linhas começando com "- "), depois uma linha em branco, "Combinados/ações:" (linhas começando com "- ", ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. Seja fiel ao conteúdo da transcrição, não invente informação que não está nela.',
+        },
+        { role: "user", content: transcricao },
+      ],
+    }),
+  });
+  if (!ataResp.ok) throw new Error("Erro ao formatar a ata: " + (await ataResp.text()));
+  const ataData = await ataResp.json();
+  let assunto = "";
+  let ata = transcricao;
+  try {
+    const parsed = JSON.parse(ataData.choices?.[0]?.message?.content || "{}");
+    assunto = typeof parsed.assunto === "string" ? parsed.assunto : textoDeQualquerCoisa(parsed.assunto) || "";
+    if (typeof parsed.ata === "string") {
+      ata = parsed.ata;
+    } else if (parsed.ata && typeof parsed.ata === "object") {
+      // Salvaguarda: se a IA devolver "ata" como objeto/lista em vez de
+      // string (já aconteceu), monta um texto legível a partir dele em
+      // vez de deixar "[object Object]" cair na tela do usuário.
+      ata = textoDeQualquerCoisa(parsed.ata);
+    }
+  } catch {
+    ata = ataData.choices?.[0]?.message?.content || ata;
+  }
+  return { assunto, ata };
+}
+
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Método não permitido." });
@@ -29,9 +72,22 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { audioUrl } = req.body || {};
+  const { audioUrl, transcricaoDireta, somenteTranscricao } = req.body || {};
+
+  // Modo consolidação: já temos o texto transcrito (de uma ou mais partes de
+  // uma reunião longa) e só precisamos formatar a ata final — pula o Whisper.
+  if (transcricaoDireta) {
+    try {
+      const { assunto, ata } = await formatarAta(apiKey, transcricaoDireta);
+      res.status(200).json({ transcricao: transcricaoDireta, assunto, ata });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+    return;
+  }
+
   if (!audioUrl) {
-    res.status(400).json({ error: "audioUrl é obrigatório." });
+    res.status(400).json({ error: "audioUrl ou transcricaoDireta é obrigatório." });
     return;
   }
 
@@ -62,41 +118,16 @@ module.exports = async (req, res) => {
     if (!transcricaoResp.ok) throw new Error("Erro ao transcrever o áudio: " + (await transcricaoResp.text()));
     const { text: transcricao } = await transcricaoResp.json();
 
-    const ataResp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        temperature: 0.3,
-        messages: [
-          {
-            role: "system",
-            content:
-              'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema principal. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases), depois uma linha em branco, "Pontos discutidos:" (linhas começando com "- "), depois uma linha em branco, "Combinados/ações:" (linhas começando com "- ", ou "Nenhum combinado registrado" se não houve nenhum). Seja fiel ao conteúdo da transcrição, não invente informação que não está nela.',
-          },
-          { role: "user", content: transcricao },
-        ],
-      }),
-    });
-    if (!ataResp.ok) throw new Error("Erro ao formatar a ata: " + (await ataResp.text()));
-    const ataData = await ataResp.json();
-    let assunto = "";
-    let ata = transcricao;
-    try {
-      const parsed = JSON.parse(ataData.choices?.[0]?.message?.content || "{}");
-      assunto = typeof parsed.assunto === "string" ? parsed.assunto : textoDeQualquerCoisa(parsed.assunto) || "";
-      if (typeof parsed.ata === "string") {
-        ata = parsed.ata;
-      } else if (parsed.ata && typeof parsed.ata === "object") {
-        // Salvaguarda: se a IA devolver "ata" como objeto/lista em vez de
-        // string (já aconteceu), monta um texto legível a partir dele em
-        // vez de deixar "[object Object]" cair na tela do usuário.
-        ata = textoDeQualquerCoisa(parsed.ata);
-      }
-    } catch {
-      ata = ataData.choices?.[0]?.message?.content || ata;
+    // Modo "só transcrição": usado pelas partes individuais de uma gravação
+    // longa segmentada — pula a formatação de ata aqui (seria descartada
+    // mesmo, já que a ata final é gerada uma vez só, depois de juntar o
+    // texto de todas as partes) e economiza uma chamada de GPT por parte.
+    if (somenteTranscricao) {
+      res.status(200).json({ transcricao });
+      return;
     }
+
+    const { assunto, ata } = await formatarAta(apiKey, transcricao);
 
     res.status(200).json({ transcricao, assunto, ata });
   } catch (err) {

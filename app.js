@@ -904,12 +904,13 @@ async function enviarSegmento(blob) {
 }
 
 // Transcreve uma gravação longa que foi dividida em vários segmentos: envia
-// e transcreve cada um na sequência, juntando os textos no final — é
-// exatamente o processo manual (VLC + várias transcrições) só que
-// automático.
+// e transcreve cada um na sequência (só o texto bruto, sem formatar ata por
+// parte — isso geraria títulos tipo "Resumo/Pontos discutidos" repetidos 4x),
+// junta tudo marcado por parte, e manda pra IA formatar UMA ata única no
+// final a partir do texto completo. É o processo manual (VLC + várias
+// transcrições + juntar na mão) só que automático e já consolidado.
 async function transcreverSegmentos(segmentos, status) {
-  let ataCompleta = "";
-  let assuntoDetectado = "";
+  let transcricaoCompleta = "";
   for (let i = 0; i < segmentos.length; i++) {
     status.textContent = `Enviando parte ${i + 1} de ${segmentos.length}...`;
     const audioUrl = await enviarSegmento(segmentos[i]);
@@ -917,7 +918,7 @@ async function transcreverSegmentos(segmentos, status) {
     const resp = await fetch("/api/transcrever", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioUrl }),
+      body: JSON.stringify({ audioUrl, somenteTranscricao: true }),
     });
     const textoResp = await resp.text();
     let data;
@@ -927,15 +928,31 @@ async function transcreverSegmentos(segmentos, status) {
       throw new Error(`Parte ${i + 1}: resposta inesperada do servidor (status ${resp.status}).`);
     }
     if (!resp.ok) throw new Error(`Parte ${i + 1}: ` + (data.error || "Erro ao transcrever."));
-    if (!assuntoDetectado && typeof data.assunto === "string" && data.assunto) assuntoDetectado = data.assunto;
-    const ataTexto = typeof data.ata === "string" ? data.ata : JSON.stringify(data.ata, null, 2);
-    ataCompleta += (ataCompleta ? "\n\n" : "") + `--- Parte ${i + 1} ---\n` + ataTexto;
+    transcricaoCompleta += (transcricaoCompleta ? "\n\n" : "") + `=== Parte ${i + 1} ===\n` + (data.transcricao || "");
   }
-  if (assuntoDetectado && !document.getElementById("alin-assunto").value.trim()) {
-    document.getElementById("alin-assunto").value = assuntoDetectado;
+
+  status.textContent = "Gerando ata consolidada a partir de todas as partes...";
+  const respAta = await fetch("/api/transcrever", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ transcricaoDireta: transcricaoCompleta }),
+  });
+  const textoRespAta = await respAta.text();
+  let dataAta;
+  try {
+    dataAta = JSON.parse(textoRespAta);
+  } catch {
+    throw new Error(`Ata consolidada: resposta inesperada do servidor (status ${respAta.status}).`);
   }
+  if (!respAta.ok) throw new Error("Ata consolidada: " + (dataAta.error || "Erro ao formatar."));
+
+  const assuntoTexto = typeof dataAta.assunto === "string" ? dataAta.assunto : "";
+  if (assuntoTexto && !document.getElementById("alin-assunto").value.trim()) {
+    document.getElementById("alin-assunto").value = assuntoTexto;
+  }
+  const ataTexto = typeof dataAta.ata === "string" ? dataAta.ata : JSON.stringify(dataAta.ata, null, 2);
   const obsAtual = document.getElementById("alin-observacao").value.trim();
-  document.getElementById("alin-observacao").value = obsAtual ? obsAtual + "\n\n" + ataCompleta : ataCompleta;
+  document.getElementById("alin-observacao").value = obsAtual ? obsAtual + "\n\n" + ataTexto : ataTexto;
   status.textContent = "Transcrição completa (todas as partes) — revise o texto antes de salvar.";
 }
 

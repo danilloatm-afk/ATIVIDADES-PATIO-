@@ -28,12 +28,12 @@ async function formatarAta(apiKey, transcricao) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       response_format: { type: "json_object" },
-      temperature: 0.3,
+      temperature: 0,
       messages: [
         {
           role: "system",
           content:
-            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema principal. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases), depois uma linha em branco, "Pontos discutidos:" (linhas começando com "- "), depois uma linha em branco, "Combinados/ações:" (linhas começando com "- ", ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. Seja fiel ao conteúdo da transcrição, não invente informação que não está nela.',
+            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema principal. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases), depois uma linha em branco, "Pontos discutidos:" (linhas começando com "- "), depois uma linha em branco, "Combinados/ações:" (linhas começando com "- ", ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. REGRA MAIS IMPORTANTE: use APENAS informações que foram realmente ditas na transcrição. Não infira, não complete, não deduza e não invente números, decisões, nomes ou conclusões que não estejam explicitamente na transcrição — se algo não ficou claro ou não foi dito, simplesmente não mencione, em vez de supor.',
         },
         { role: "user", content: transcricao },
       ],

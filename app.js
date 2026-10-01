@@ -784,6 +784,45 @@ function extensaoPara(mimeType) {
   return "webm";
 }
 
+// Compressão de recuperação: se um áudio (gravação antiga, de antes do
+// BITRATE_GRAVACAO mais baixo, ou vindo de um arquivo externo) ainda estiver
+// grande demais pra IA aceitar, recomprime no próprio navegador via
+// ffmpeg.wasm (carregado sob demanda, só quando realmente precisa) antes de
+// desistir. Isso evita perder gravações longas só por causa do bitrate alto
+// que o navegador usa por padrão quando não especificamos um.
+let ffmpegCarregado = null;
+async function carregarFFmpeg(status) {
+  if (ffmpegCarregado) return ffmpegCarregado;
+  if (!window.FFmpeg) {
+    if (status) status.textContent = "Carregando ferramenta de compressão de áudio...";
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js";
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Não foi possível carregar a ferramenta de compressão."));
+      document.head.appendChild(script);
+    });
+  }
+  const { createFFmpeg } = window.FFmpeg;
+  const ffmpeg = createFFmpeg({ log: false, corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js" });
+  await ffmpeg.load();
+  ffmpegCarregado = ffmpeg;
+  return ffmpeg;
+}
+
+async function comprimirAudio(blob, status) {
+  const ffmpeg = await carregarFFmpeg(status);
+  const { fetchFile } = window.FFmpeg;
+  const nomeEntrada = "entrada." + extensaoPara(blob.type || "audio/webm");
+  ffmpeg.FS("writeFile", nomeEntrada, await fetchFile(blob));
+  if (status) status.textContent = "Comprimindo áudio longo — pode levar alguns minutos, não feche esta aba...";
+  await ffmpeg.run("-i", nomeEntrada, "-vn", "-ac", "1", "-b:a", `${BITRATE_GRAVACAO / 1000}k`, "saida.webm");
+  const dados = ffmpeg.FS("readFile", "saida.webm");
+  ffmpeg.FS("unlink", nomeEntrada);
+  ffmpeg.FS("unlink", "saida.webm");
+  return new Blob([dados.buffer], { type: "audio/webm" });
+}
+
 function formatarTimer(segundosTotais) {
   const m = String(Math.floor(segundosTotais / 60)).padStart(2, "0");
   const s = String(segundosTotais % 60).padStart(2, "0");
@@ -814,7 +853,21 @@ async function garantirAudioEnviado() {
   }
   if (!audioBlobAlinhamento) throw new Error("Nenhum áudio gravado.");
   if (audioBlobAlinhamento.size > LIMITE_BYTES_AUDIO) {
-    throw new Error("Gravação muito longa/grande para a IA transcrever (limite ~25MB). Grave a reunião em partes menores.");
+    const status = document.getElementById("gravacao-status");
+    const tamanhoOriginalMB = (audioBlobAlinhamento.size / 1024 / 1024).toFixed(1);
+    try {
+      audioBlobAlinhamento = await comprimirAudio(audioBlobAlinhamento, status);
+      mimeTypeGravacaoAtual = "audio/webm";
+      const preview = document.getElementById("audio-preview");
+      preview.src = URL.createObjectURL(audioBlobAlinhamento);
+    } catch (err) {
+      throw new Error(`Áudio de ${tamanhoOriginalMB}MB é grande demais e a compressão falhou: ${err.message}`);
+    }
+    if (audioBlobAlinhamento.size > LIMITE_BYTES_AUDIO) {
+      const tamanhoFinalMB = (audioBlobAlinhamento.size / 1024 / 1024).toFixed(1);
+      throw new Error(`Áudio comprimido de ${tamanhoOriginalMB}MB para ${tamanhoFinalMB}MB, mas ainda acima do limite da IA (~25MB). Grave reuniões assim em partes menores.`);
+    }
+    if (status) status.textContent = `Áudio comprimido de ${tamanhoOriginalMB}MB para ${(audioBlobAlinhamento.size / 1024 / 1024).toFixed(1)}MB. Enviando...`;
   }
   const tipoAudio = audioBlobAlinhamento.type || mimeTypeGravacaoAtual || "audio/webm";
   const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;

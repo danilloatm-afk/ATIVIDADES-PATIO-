@@ -904,7 +904,11 @@ async function garantirAudioEnviado() {
       const preview = document.getElementById("audio-preview");
       preview.src = URL.createObjectURL(audioBlobAlinhamento);
     } catch (err) {
-      throw new Error(`Áudio de ${tamanhoOriginalMB}MB é grande demais e a compressão falhou: ${err.message}`);
+      throw new Error(
+        `Áudio de ${tamanhoOriginalMB}MB é grande demais e a compressão automática falhou (${err.message}). ` +
+          `Grave reuniões assim em partes menores, ou comprima o arquivo manualmente antes (ex: VLC → Mídia → ` +
+          `Converter/Salvar → perfil "Audio - MP3", 32kb/s, mono) e carregue o arquivo já comprimido.`
+      );
     }
     if (audioBlobAlinhamento.size > LIMITE_BYTES_AUDIO) {
       const tamanhoFinalMB = (audioBlobAlinhamento.size / 1024 / 1024).toFixed(1);

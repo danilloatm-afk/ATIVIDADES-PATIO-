@@ -7,7 +7,7 @@
 // style.css, app.js, manifest.json, ícones), aumente o CACHE_VERSION abaixo.
 // Sem isso o navegador de quem já instalou o app continua servindo os
 // arquivos antigos do cache indefinidamente.
-const CACHE_VERSION = "v36";
+const CACHE_VERSION = "v37";
 const CACHE_NAME = `op-shell-${CACHE_VERSION}`;
 
 const ARQUIVOS_PRECACHE = [
@@ -45,6 +45,13 @@ function ehChamadaDeApi(url) {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
+
+  // Só faz sentido cachear GET (arquivos estáticos). POST/PUT (nossa própria
+  // API em /api/*, uploads pro Supabase Storage etc.) sempre vão direto pra
+  // rede sem passar pelo Cache API — interceptar POST aqui quebra no Safari
+  // /iOS com "FetchEvent.respondWith received an error: Returned response is
+  // null", além de cache.put() lançar erro em requests não-GET.
+  if (event.request.method !== "GET") return;
 
   // Chamadas ao Supabase (dados) sempre vão direto pra rede, sem cache.
   if (ehChamadaDeApi(url)) return;

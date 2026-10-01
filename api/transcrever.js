@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
     // O Whisper usa a extensão do nome do arquivo pra saber o formato —
     // mandar sempre "audio.webm" quebrava áudios gravados no iPhone (que
     // chegam como audio/mp4). Deriva a extensão real do content-type.
-    const extensaoPorTipo = { "audio/mp4": "mp4", "audio/aac": "aac", "audio/ogg": "ogg", "audio/webm": "webm" };
+    const extensaoPorTipo = { "audio/mp4": "mp4", "audio/aac": "aac", "audio/ogg": "ogg", "audio/webm": "webm", "audio/mpeg": "mp3", "audio/mp3": "mp3" };
     const tipoBase = tipoAudio.split(";")[0].trim();
     const extensao = extensaoPorTipo[tipoBase] || (audioUrl.match(/\.(\w+)$/)?.[1] ?? "webm");
 

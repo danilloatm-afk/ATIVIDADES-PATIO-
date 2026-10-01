@@ -778,6 +778,7 @@ const BITRATE_GRAVACAO = 24000;
 const LIMITE_BYTES_AUDIO = 24 * 1024 * 1024;
 
 function extensaoPara(mimeType) {
+  if (mimeType.includes("mpeg") || mimeType.includes("mp3")) return "mp3";
   if (mimeType.includes("mp4")) return "mp4";
   if (mimeType.includes("ogg")) return "ogg";
   if (mimeType.includes("aac")) return "aac";
@@ -786,41 +787,83 @@ function extensaoPara(mimeType) {
 
 // Compressão de recuperação: se um áudio (gravação antiga, de antes do
 // BITRATE_GRAVACAO mais baixo, ou vindo de um arquivo externo) ainda estiver
-// grande demais pra IA aceitar, recomprime no próprio navegador via
-// ffmpeg.wasm (carregado sob demanda, só quando realmente precisa) antes de
-// desistir. Isso evita perder gravações longas só por causa do bitrate alto
-// que o navegador usa por padrão quando não especificamos um.
-let ffmpegCarregado = null;
-async function carregarFFmpeg(status) {
-  if (ffmpegCarregado) return ffmpegCarregado;
-  if (!window.FFmpeg) {
-    if (status) status.textContent = "Carregando ferramenta de compressão de áudio...";
-    await new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = "https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js";
-      script.onload = resolve;
-      script.onerror = () => reject(new Error("Não foi possível carregar a ferramenta de compressão."));
-      document.head.appendChild(script);
-    });
-  }
-  const { createFFmpeg } = window.FFmpeg;
-  const ffmpeg = createFFmpeg({ log: false, corePath: "https://unpkg.com/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js" });
-  await ffmpeg.load();
-  ffmpegCarregado = ffmpeg;
-  return ffmpeg;
+// grande demais pra IA aceitar, recomprime no próprio navegador antes de
+// desistir. Usa decodeAudioData (nativo do navegador) + lamejs (encoder MP3
+// em JavaScript puro, sem WebAssembly) rodando numa Web Worker — diferente
+// do ffmpeg.wasm, não depende de SharedArrayBuffer/crossOriginIsolated, que
+// o Vercel não tem configurado aqui.
+const LAMEJS_CDN_URL = "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js";
+
+function criarWorkerMp3() {
+  const scriptWorker = `
+    self.importScripts(${JSON.stringify(LAMEJS_CDN_URL)});
+    self.onmessage = (e) => {
+      const { pcm, sampleRate, kbps } = e.data;
+      try {
+        const encoder = new lamejs.Mp3Encoder(1, sampleRate, kbps);
+        const tamanhoBloco = 1152;
+        const blocos = [];
+        let bytesTotais = 0;
+        for (let i = 0; i < pcm.length; i += tamanhoBloco) {
+          const bloco = encoder.encodeBuffer(pcm.subarray(i, i + tamanhoBloco));
+          if (bloco.length > 0) { blocos.push(bloco); bytesTotais += bloco.length; }
+        }
+        const fim = encoder.flush();
+        if (fim.length > 0) { blocos.push(fim); bytesTotais += fim.length; }
+        const saida = new Uint8Array(bytesTotais);
+        let offset = 0;
+        for (const bloco of blocos) { saida.set(bloco, offset); offset += bloco.length; }
+        self.postMessage({ ok: true, dados: saida }, [saida.buffer]);
+      } catch (err) {
+        self.postMessage({ ok: false, erro: String(err && err.message || err) });
+      }
+    };
+  `;
+  const blobUrl = URL.createObjectURL(new Blob([scriptWorker], { type: "application/javascript" }));
+  const worker = new Worker(blobUrl);
+  worker.addEventListener("message", () => URL.revokeObjectURL(blobUrl), { once: true });
+  return worker;
 }
 
 async function comprimirAudio(blob, status) {
-  const ffmpeg = await carregarFFmpeg(status);
-  const { fetchFile } = window.FFmpeg;
-  const nomeEntrada = "entrada." + extensaoPara(blob.type || "audio/webm");
-  ffmpeg.FS("writeFile", nomeEntrada, await fetchFile(blob));
+  if (status) status.textContent = "Lendo áudio...";
+  const AudioContextClasse = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClasse) throw new Error("Navegador sem suporte a Web Audio API.");
+  const audioCtx = new AudioContextClasse();
+  let audioBuffer;
+  try {
+    audioBuffer = await audioCtx.decodeAudioData(await blob.arrayBuffer());
+  } finally {
+    audioCtx.close();
+  }
+
+  // Mixa pra mono (média dos canais, se houver mais de um).
+  const canal0 = audioBuffer.getChannelData(0);
+  const pcmFloat = new Float32Array(canal0.length);
+  if (audioBuffer.numberOfChannels > 1) {
+    const canal1 = audioBuffer.getChannelData(1);
+    for (let i = 0; i < canal0.length; i++) pcmFloat[i] = (canal0[i] + canal1[i]) / 2;
+  } else {
+    pcmFloat.set(canal0);
+  }
+  const pcmInt16 = new Int16Array(pcmFloat.length);
+  for (let i = 0; i < pcmFloat.length; i++) {
+    const s = Math.max(-1, Math.min(1, pcmFloat[i]));
+    pcmInt16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+
   if (status) status.textContent = "Comprimindo áudio longo — pode levar alguns minutos, não feche esta aba...";
-  await ffmpeg.run("-i", nomeEntrada, "-vn", "-ac", "1", "-b:a", `${BITRATE_GRAVACAO / 1000}k`, "saida.webm");
-  const dados = ffmpeg.FS("readFile", "saida.webm");
-  ffmpeg.FS("unlink", nomeEntrada);
-  ffmpeg.FS("unlink", "saida.webm");
-  return new Blob([dados.buffer], { type: "audio/webm" });
+  const worker = criarWorkerMp3();
+  try {
+    const resultado = await new Promise((resolve, reject) => {
+      worker.onmessage = (e) => (e.data.ok ? resolve(e.data.dados) : reject(new Error(e.data.erro)));
+      worker.onerror = (e) => reject(new Error(e.message || "Erro na compressão."));
+      worker.postMessage({ pcm: pcmInt16, sampleRate: audioBuffer.sampleRate, kbps: BITRATE_GRAVACAO / 1000 }, [pcmInt16.buffer]);
+    });
+    return new Blob([resultado], { type: "audio/mpeg" });
+  } finally {
+    worker.terminate();
+  }
 }
 
 function formatarTimer(segundosTotais) {
@@ -857,7 +900,7 @@ async function garantirAudioEnviado() {
     const tamanhoOriginalMB = (audioBlobAlinhamento.size / 1024 / 1024).toFixed(1);
     try {
       audioBlobAlinhamento = await comprimirAudio(audioBlobAlinhamento, status);
-      mimeTypeGravacaoAtual = "audio/webm";
+      mimeTypeGravacaoAtual = "audio/mpeg";
       const preview = document.getElementById("audio-preview");
       preview.src = URL.createObjectURL(audioBlobAlinhamento);
     } catch (err) {

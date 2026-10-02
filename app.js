@@ -10,7 +10,7 @@ if ("serviceWorker" in navigator) {
 
 // Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
 // CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
-const VERSAO_APP = "v47";
+const VERSAO_APP = "v48";
 document.getElementById("versao-app").textContent = VERSAO_APP;
 
 // Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano
@@ -1358,6 +1358,48 @@ document.getElementById("form-alinhamento").addEventListener("submit", async (e)
   }
 });
 
+// Janela de edição com campo de texto grande (o prompt() do navegador só
+// aceita uma linha e não serve pra editar/colar uma ata longa). Devolve
+// { assunto, observacao } ao salvar, ou null se cancelar.
+function abrirEditorAlinhamento(alinhamento) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    dlg.style.cssText =
+      "width:min(760px,94vw);max-height:94vh;padding:1rem;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--text);";
+    dlg.innerHTML = `
+      <form method="dialog" style="display:flex;flex-direction:column;gap:0.7rem;">
+        <label>Assunto <input type="text" class="ed-assunto" style="width:100%;"></label>
+        <label>Observação <textarea class="ed-obs" rows="18" style="width:100%;resize:vertical;"></textarea></label>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+          <button type="button" class="btn secondary ed-cancelar">Cancelar</button>
+          <button type="button" class="btn primary ed-salvar">Salvar</button>
+        </div>
+      </form>`;
+    const campoAssunto = dlg.querySelector(".ed-assunto");
+    const campoObs = dlg.querySelector(".ed-obs");
+    campoAssunto.value = alinhamento.assunto || "";
+    campoObs.value = alinhamento.observacao || "";
+    let finalizado = false;
+    const finalizar = (resultado) => {
+      if (finalizado) return;
+      finalizado = true;
+      try {
+        dlg.close();
+      } catch {}
+      dlg.remove();
+      resolve(resultado);
+    };
+    dlg.querySelector(".ed-cancelar").addEventListener("click", () => finalizar(null));
+    dlg.querySelector(".ed-salvar").addEventListener("click", () =>
+      finalizar({ assunto: campoAssunto.value, observacao: campoObs.value.trim() })
+    );
+    // Esc (ou qualquer outro fechamento) cancela.
+    dlg.addEventListener("close", () => finalizar(null));
+    document.body.appendChild(dlg);
+    dlg.showModal();
+  });
+}
+
 async function loadAlinhamentos() {
   const tbody = document.querySelector("#tbl-alinhamentos tbody");
   if (!setorSelecionadoId) {
@@ -1426,13 +1468,11 @@ async function loadAlinhamentos() {
           const alinhamento = rows.find((a) => String(a.id) === String(id));
           if (!alinhamento) return;
 
-          const novoAssunto = prompt("Assunto:", alinhamento.assunto);
-          if (novoAssunto === null) return;
-          const assuntoLimpo = novoAssunto.trim();
+          const edicao = await abrirEditorAlinhamento(alinhamento);
+          if (!edicao) return;
+          const assuntoLimpo = edicao.assunto.trim();
           if (!assuntoLimpo) return alert("O assunto não pode ficar vazio.");
-
-          const novaObs = prompt("Observação:", alinhamento.observacao);
-          if (novaObs === null) return;
+          const novaObs = edicao.observacao;
 
           const payload = {};
           if (assuntoLimpo !== alinhamento.assunto) payload.assunto = assuntoLimpo;

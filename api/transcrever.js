@@ -21,19 +21,19 @@ function textoDeQualquerCoisa(valor) {
 // pro GPT formatar como ata curta. Extraído num helper porque é usado tanto
 // no fluxo normal (1 áudio) quanto no fluxo de consolidação final (várias
 // transcrições de uma reunião longa dividida em pedaços).
-async function formatarAta(apiKey, transcricao) {
+async function formatarAta(apiKey, transcricao, modelo = "gpt-4o") {
   const ataResp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: modelo,
       response_format: { type: "json_object" },
       temperature: 0,
       messages: [
         {
           role: "system",
           content:
-            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema PRINCIPAL da conversa (o assunto que ocupou mais tempo/foi o foco), mesmo que outros assuntos tenham surgido no meio. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases sobre o assunto principal), linha em branco, "Pontos discutidos:" (linhas "- ", só sobre o assunto principal da reunião), linha em branco, "Outros assuntos:" (linhas "- ", para temas paralelos/pontuais que surgiram no meio da conversa mas não são o foco principal — ex: um comentário rápido sobre outro projeto, uma pergunta de outro tema; omita essa seção inteira, incluindo o título, se não houve nenhum assunto paralelo), linha em branco, "Combinados/ações:" (linhas "- ", combinados de qualquer assunto, principal ou paralelo, ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir com marcações de interlocutor no início de cada fala, tipo "[A]" ou "[B]" (letras identificando pessoas diferentes que falaram) — use isso como contexto pra entender quem disse o quê quando for relevante pra um combinado/ação (ex: "Pessoa B ficou de enviar o relatório"), mas NUNCA invente um nome próprio real a partir dessas letras; refira-se como "Pessoa A", "Pessoa B" etc., a menos que o nome real tenha sido dito na própria fala. A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. REGRA MAIS IMPORTANTE: use APENAS informações que foram realmente ditas na transcrição. Não infira, não complete, não deduza e não invente números, decisões, nomes ou conclusões que não estejam explicitamente na transcrição — se algo não ficou claro ou não foi dito, simplesmente não mencione, em vez de supor.',
+            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema PRINCIPAL da conversa (o assunto que ocupou mais tempo/foi o foco), mesmo que outros assuntos tenham surgido no meio. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases sobre o assunto principal), linha em branco, "Pontos discutidos:" (linhas "- ", só sobre o assunto principal da reunião), linha em branco, "Outros assuntos:" (linhas "- ", para temas paralelos/pontuais que surgiram no meio da conversa mas não são o foco principal — ex: um comentário rápido sobre outro projeto, uma pergunta de outro tema; omita essa seção inteira, incluindo o título, se não houve nenhum assunto paralelo), linha em branco, "Combinados/ações:" (linhas "- ", combinados de qualquer assunto, principal ou paralelo, ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. REGRA MAIS IMPORTANTE: use APENAS informações que foram realmente ditas na transcrição. Não infira, não complete, não deduza e não invente números, decisões, nomes ou conclusões que não estejam explicitamente na transcrição — se algo não ficou claro ou não foi dito, simplesmente não mencione, em vez de supor.',
         },
         { role: "user", content: transcricao },
       ],
@@ -72,13 +72,15 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { audioUrl, transcricaoDireta, somenteTranscricao, identificarVozes } = req.body || {};
+  const { audioUrl, transcricaoDireta, somenteTranscricao } = req.body || {};
+  // Permite comparar modelos da ata (só valores conhecidos); padrão gpt-4o.
+  const modeloAta = ["gpt-4o", "gpt-4o-mini"].includes(req.body?.modeloAta) ? req.body.modeloAta : "gpt-4o";
 
   // Modo consolidação: já temos o texto transcrito (de uma ou mais partes de
   // uma reunião longa) e só precisamos formatar a ata final — pula o Whisper.
   if (transcricaoDireta) {
     try {
-      const { assunto, ata } = await formatarAta(apiKey, transcricaoDireta);
+      const { assunto, ata } = await formatarAta(apiKey, transcricaoDireta, modeloAta);
       res.status(200).json({ transcricao: transcricaoDireta, assunto, ata });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -105,54 +107,20 @@ module.exports = async (req, res) => {
     const tipoBase = tipoAudio.split(";")[0].trim();
     const extensao = extensaoPorTipo[tipoBase] || (audioUrl.match(/\.(\w+)$/)?.[1] ?? "webm");
 
-    // gpt-4o-transcribe-diarize: mesmo preço por minuto do whisper-1, mas já
-    // identifica quem fala (rotulado como "A", "B", "C"...), o que antes só
-    // dava pra conseguir gravando cada pessoa separadamente. Se esse modelo
-    // (mais novo) recusar o arquivo, tenta o whisper-1 clássico antes de
-    // desistir — sem identificação de voz, mas com a transcrição garantida.
-    function pedirTranscricao(modelo) {
-      const formData = new FormData();
-      formData.append("file", audioBlob, `audio.${extensao}`);
-      formData.append("model", modelo);
-      formData.append("language", "pt");
-      if (modelo === "gpt-4o-transcribe-diarize") {
-        formData.append("response_format", "diarized_json");
-        formData.append("chunking_strategy", "auto");
-      }
-      return fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: formData,
-      });
-    }
+    const formData = new FormData();
+    formData.append("file", audioBlob, `audio.${extensao}`);
+    formData.append("model", "whisper-1");
+    formData.append("language", "pt");
 
-    // Padrão: whisper-1 (rápido, ~10-20s por 30 min de áudio). O modelo com
-    // identificação de voz funciona, mas mediu ~110s para só 4 min de áudio —
-    // lento demais (derruba a conexão do iPhone e estoura o limite da Vercel
-    // em reuniões longas). Só é usado se o pedido vier com identificarVozes.
-    const usarDiarize = identificarVozes === true;
-    let transcricaoResp = await pedirTranscricao(usarDiarize ? "gpt-4o-transcribe-diarize" : "whisper-1");
+    const transcricaoResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+    });
     if (!transcricaoResp.ok) {
-      const erroPrimeiro = await transcricaoResp.text();
-      if (!usarDiarize) {
-        throw new Error(`Erro ao transcrever o áudio (${Math.round(audioBuffer.byteLength / 1024)}KB, ${tipoAudio}): ${erroPrimeiro}`);
-      }
-      transcricaoResp = await pedirTranscricao("whisper-1");
-      if (!transcricaoResp.ok) {
-        throw new Error(
-          `Erro ao transcrever o áudio (${Math.round(audioBuffer.byteLength / 1024)}KB, ${tipoAudio}): ` +
-            (await transcricaoResp.text()) +
-            ` | modelo com identificação de voz: ${erroPrimeiro}`
-        );
-      }
+      throw new Error(`Erro ao transcrever o áudio (${Math.round(audioBuffer.byteLength / 1024)}KB, ${tipoAudio}): ${await transcricaoResp.text()}`);
     }
-    const transcricaoData = await transcricaoResp.json();
-    // Monta o texto com marcação de interlocutor por segmento ("[A] fala...")
-    // quando a resposta vem diarizada; se por algum motivo vier sem
-    // segmentos, cai pro texto corrido simples (compatibilidade).
-    const transcricao = Array.isArray(transcricaoData.segments) && transcricaoData.segments.length > 0
-      ? transcricaoData.segments.map((seg) => `[${seg.speaker}] ${seg.text}`).join("\n")
-      : transcricaoData.text || "";
+    const { text: transcricao } = await transcricaoResp.json();
 
     // Modo "só transcrição": usado pelas partes individuais de uma gravação
     // longa segmentada — pula a formatação de ata aqui (seria descartada
@@ -163,7 +131,7 @@ module.exports = async (req, res) => {
       return;
     }
 
-    const { assunto, ata } = await formatarAta(apiKey, transcricao);
+    const { assunto, ata } = await formatarAta(apiKey, transcricao, modeloAta);
 
     res.status(200).json({ transcricao, assunto, ata });
   } catch (err) {

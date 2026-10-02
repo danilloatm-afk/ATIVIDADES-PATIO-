@@ -57,6 +57,14 @@ async function formatarAta(apiKey, transcricao, modelo = "gpt-4o") {
   } catch {
     ata = ataData.choices?.[0]?.message?.content || ata;
   }
+  // Às vezes a IA devolve a ata inteira numa linha só (sem \n): recoloca as
+  // quebras antes de cada título e de cada item "- ".
+  if (!ata.includes("\n")) {
+    ata = ata
+      .replace(/\s+(Pontos discutidos:|Outros assuntos:|Combinados\/ações:)/g, "\n\n$1")
+      .replace(/(:|\.)\s+-\s+(?=\S)/g, "$1\n- ")
+      .replace(/\s+-\s+(?=[A-ZÀ-Ú])/g, "\n- ");
+  }
   // A IA às vezes lista combinados reais e ainda escreve "Nenhum combinado
   // registrado" — tira essa linha quando já existem combinados de verdade.
   const [antes, ...resto] = ata.split(/Combinados\/ações:/);

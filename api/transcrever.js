@@ -26,14 +26,14 @@ async function formatarAta(apiKey, transcricao) {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       response_format: { type: "json_object" },
       temperature: 0,
       messages: [
         {
           role: "system",
           content:
-            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema PRINCIPAL da conversa (o assunto que ocupou mais tempo/foi o foco), mesmo que outros assuntos tenham surgido no meio. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases sobre o assunto principal), linha em branco, "Pontos discutidos:" (linhas "- ", só sobre o assunto principal da reunião), linha em branco, "Outros assuntos:" (linhas "- ", para temas paralelos/pontuais que surgiram no meio da conversa mas não são o foco principal — ex: um comentário rápido sobre outro projeto, uma pergunta de outro tema; omita essa seção inteira, incluindo o título, se não houve nenhum assunto paralelo), linha em branco, "Combinados/ações:" (linhas "- ", combinados de qualquer assunto, principal ou paralelo, ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. REGRA MAIS IMPORTANTE: use APENAS informações que foram realmente ditas na transcrição. Não infira, não complete, não deduza e não invente números, decisões, nomes ou conclusões que não estejam explicitamente na transcrição — se algo não ficou claro ou não foi dito, simplesmente não mencione, em vez de supor.',
+            'Você transforma a transcrição de uma conversa entre gestor e liderado em uma ata curta, em português do Brasil. Responda em JSON válido no formato {"assunto": "...", "ata": "..."} — IMPORTANTE: tanto "assunto" quanto "ata" devem ser STRINGS de texto simples (nunca objetos ou listas aninhadas). "assunto" é um título bem curto (até 8 palavras) resumindo o tema PRINCIPAL da conversa (o assunto que ocupou mais tempo/foi o foco), mesmo que outros assuntos tenham surgido no meio. "ata" é uma única string de texto organizada em tópicos, usando quebras de linha (\\n) dentro da própria string, no formato: "Resumo:" (1-2 frases sobre o assunto principal), linha em branco, "Pontos discutidos:" (linhas "- ", só sobre o assunto principal da reunião), linha em branco, "Outros assuntos:" (linhas "- ", para temas paralelos/pontuais que surgiram no meio da conversa mas não são o foco principal — ex: um comentário rápido sobre outro projeto, uma pergunta de outro tema; omita essa seção inteira, incluindo o título, se não houve nenhum assunto paralelo), linha em branco, "Combinados/ações:" (linhas "- ", combinados de qualquer assunto, principal ou paralelo, ou "Nenhum combinado registrado" se não houve nenhum). A transcrição pode vir com marcações de interlocutor no início de cada fala, tipo "[A]" ou "[B]" (letras identificando pessoas diferentes que falaram) — use isso como contexto pra entender quem disse o quê quando for relevante pra um combinado/ação (ex: "Pessoa B ficou de enviar o relatório"), mas NUNCA invente um nome próprio real a partir dessas letras; refira-se como "Pessoa A", "Pessoa B" etc., a menos que o nome real tenha sido dito na própria fala. A transcrição pode vir em vários trechos marcados com "=== Parte N ===" (de uma reunião longa dividida em pedaços) — nesse caso trate tudo como UMA conversa só e gere UMA ata única, sem repetir títulos por parte. REGRA MAIS IMPORTANTE: use APENAS informações que foram realmente ditas na transcrição. Não infira, não complete, não deduza e não invente números, decisões, nomes ou conclusões que não estejam explicitamente na transcrição — se algo não ficou claro ou não foi dito, simplesmente não mencione, em vez de supor.',
         },
         { role: "user", content: transcricao },
       ],
@@ -107,7 +107,12 @@ module.exports = async (req, res) => {
 
     const formData = new FormData();
     formData.append("file", audioBlob, `audio.${extensao}`);
-    formData.append("model", "whisper-1");
+    // gpt-4o-transcribe-diarize: mesmo preço por minuto do whisper-1, mas já
+    // identifica quem fala (rotulado como "A", "B", "C"...), o que antes só
+    // dava pra conseguir gravando cada pessoa separadamente.
+    formData.append("model", "gpt-4o-transcribe-diarize");
+    formData.append("response_format", "diarized_json");
+    formData.append("chunking_strategy", "auto");
     formData.append("language", "pt");
 
     const transcricaoResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
@@ -116,7 +121,13 @@ module.exports = async (req, res) => {
       body: formData,
     });
     if (!transcricaoResp.ok) throw new Error("Erro ao transcrever o áudio: " + (await transcricaoResp.text()));
-    const { text: transcricao } = await transcricaoResp.json();
+    const transcricaoData = await transcricaoResp.json();
+    // Monta o texto com marcação de interlocutor por segmento ("[A] fala...")
+    // quando a resposta vem diarizada; se por algum motivo vier sem
+    // segmentos, cai pro texto corrido simples (compatibilidade).
+    const transcricao = Array.isArray(transcricaoData.segments) && transcricaoData.segments.length > 0
+      ? transcricaoData.segments.map((seg) => `[${seg.speaker}] ${seg.text}`).join("\n")
+      : transcricaoData.text || "";
 
     // Modo "só transcrição": usado pelas partes individuais de uma gravação
     // longa segmentada — pula a formatação de ata aqui (seria descartada

@@ -72,7 +72,7 @@ module.exports = async (req, res) => {
     return;
   }
 
-  const { audioUrl, transcricaoDireta, somenteTranscricao } = req.body || {};
+  const { audioUrl, transcricaoDireta, somenteTranscricao, identificarVozes } = req.body || {};
 
   // Modo consolidação: já temos o texto transcrito (de uma ou mais partes de
   // uma reunião longa) e só precisamos formatar a ata final — pula o Whisper.
@@ -126,15 +126,23 @@ module.exports = async (req, res) => {
       });
     }
 
-    let transcricaoResp = await pedirTranscricao("gpt-4o-transcribe-diarize");
+    // Padrão: whisper-1 (rápido, ~10-20s por 30 min de áudio). O modelo com
+    // identificação de voz funciona, mas mediu ~110s para só 4 min de áudio —
+    // lento demais (derruba a conexão do iPhone e estoura o limite da Vercel
+    // em reuniões longas). Só é usado se o pedido vier com identificarVozes.
+    const usarDiarize = identificarVozes === true;
+    let transcricaoResp = await pedirTranscricao(usarDiarize ? "gpt-4o-transcribe-diarize" : "whisper-1");
     if (!transcricaoResp.ok) {
-      const erroDiarize = await transcricaoResp.text();
+      const erroPrimeiro = await transcricaoResp.text();
+      if (!usarDiarize) {
+        throw new Error(`Erro ao transcrever o áudio (${Math.round(audioBuffer.byteLength / 1024)}KB, ${tipoAudio}): ${erroPrimeiro}`);
+      }
       transcricaoResp = await pedirTranscricao("whisper-1");
       if (!transcricaoResp.ok) {
         throw new Error(
           `Erro ao transcrever o áudio (${Math.round(audioBuffer.byteLength / 1024)}KB, ${tipoAudio}): ` +
             (await transcricaoResp.text()) +
-            ` | modelo com identificação de voz: ${erroDiarize}`
+            ` | modelo com identificação de voz: ${erroPrimeiro}`
         );
       }
     }

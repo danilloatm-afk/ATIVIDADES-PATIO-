@@ -10,7 +10,7 @@ if ("serviceWorker" in navigator) {
 
 // Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
 // CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
-const VERSAO_APP = "v44";
+const VERSAO_APP = "v45";
 document.getElementById("versao-app").textContent = VERSAO_APP;
 
 // Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano
@@ -825,7 +825,9 @@ let mimeTypeGravacaoAtual = "";
 // juntados. Só entra em jogo quando a gravação passa desse tempo — gravações
 // curtas e o fluxo de "usar áudio do computador" continuam exatamente como
 // antes (segmentosFinalizados fica vazio nesses casos).
-const DURACAO_SEGMENTO_MS = 25 * 60 * 1000;
+// 10 min: o iPhone ignora a taxa de bits baixa e grava ~190kbps (4 min = 5,9MB),
+// então 25 min passariam do limite de 25MB da IA; 10 min ficam em ~14MB.
+const DURACAO_SEGMENTO_MS = 10 * 60 * 1000;
 // Segmentos menores que isso são lixo (gravador parou sem capturar nada) e
 // não entram na lista — evita mandar arquivo vazio/corrompido pra IA.
 const TAMANHO_MINIMO_SEGMENTO_BYTES = 2000;

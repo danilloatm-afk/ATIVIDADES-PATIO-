@@ -8,17 +8,61 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-// Mostra a versão atual (lida direto do sw.js, sem precisar manter um
-// número duplicado em dois arquivos) — ajuda a confirmar se o celular/PC já
-// pegou a atualização mais recente, sem precisar abrir o sw.js na mão.
-fetch("sw.js", { cache: "no-store" })
-  .then((r) => r.text())
-  .then((texto) => {
+// Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
+// CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
+const VERSAO_APP = "v44";
+document.getElementById("versao-app").textContent = VERSAO_APP;
+
+// Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano
+// numa versão antiga e as correções nunca chegam. Compara a versão rodando com
+// a publicada (sw.js sem cache); se diferir, recarrega sozinho — ou, se tem
+// gravação/texto em andamento, só avisa pra não perder nada.
+function mostrarBannerAtualizacao() {
+  if (document.getElementById("banner-atualizacao")) return;
+  const banner = document.createElement("div");
+  banner.id = "banner-atualizacao";
+  banner.style.cssText =
+    "position:fixed;left:0;right:0;bottom:0;z-index:9999;padding:0.75rem 1rem;background:#4b3fd1;color:#fff;" +
+    "display:flex;justify-content:space-between;align-items:center;gap:0.75rem;font-size:0.9rem;";
+  banner.innerHTML = '<span>Nova versão disponível.</span><button type="button" style="padding:0.4rem 0.9rem;border-radius:6px;border:0;font-weight:600;">Atualizar</button>';
+  banner.querySelector("button").addEventListener("click", () => location.reload());
+  document.body.appendChild(banner);
+}
+
+async function verificarAtualizacao() {
+  try {
+    const texto = await (await fetch("sw.js", { cache: "no-store" })).text();
     const versao = texto.match(/CACHE_VERSION\s*=\s*"([^"]+)"/)?.[1];
-    const el = document.getElementById("versao-app");
-    if (versao && el) el.textContent = versao;
-  })
-  .catch(() => {});
+    if (!versao || versao === VERSAO_APP) return;
+
+    const emUso =
+      gravacaoSegmentadaAtiva ||
+      !!audioBlobAlinhamento ||
+      segmentosFinalizados.length > 0 ||
+      !!document.getElementById("alin-assunto").value.trim() ||
+      !!document.getElementById("alin-observacao").value.trim();
+    // Só recarrega sozinho uma vez por versão nova (evita loop se algo der errado).
+    let jaRecarregou = false;
+    try {
+      jaRecarregou = sessionStorage.getItem("recarregouPara") === versao;
+    } catch {}
+    if (emUso || jaRecarregou) {
+      mostrarBannerAtualizacao();
+      return;
+    }
+    try {
+      sessionStorage.setItem("recarregouPara", versao);
+    } catch {}
+    const registros = (await navigator.serviceWorker?.getRegistrations?.()) || [];
+    await Promise.all(registros.map((r) => r.update().catch(() => {})));
+    location.reload();
+  } catch {}
+}
+setTimeout(verificarAtualizacao, 2500);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") verificarAtualizacao();
+});
+setInterval(verificarAtualizacao, 5 * 60 * 1000);
 
 const STATUS_LABEL = { aberto: "Aberto", andamento: "Em andamento", concluido: "Concluído" };
 const PRIORIDADE_LABEL = { baixa: "Baixa", media: "Média", alta: "Alta" };

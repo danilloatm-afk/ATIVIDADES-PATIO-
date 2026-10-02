@@ -57,6 +57,15 @@ async function formatarAta(apiKey, transcricao, modelo = "gpt-4o") {
   } catch {
     ata = ataData.choices?.[0]?.message?.content || ata;
   }
+  // A IA às vezes lista combinados reais e ainda escreve "Nenhum combinado
+  // registrado" — tira essa linha quando já existem combinados de verdade.
+  const [antes, ...resto] = ata.split(/Combinados\/ações:/);
+  if (resto.length) {
+    const linhas = resto.join("Combinados/ações:").split("\n");
+    const ehNenhum = (l) => /^\s*-?\s*Nenhum combinado registrado\.?\s*$/i.test(l);
+    const reais = linhas.filter((l) => /^\s*-\s+\S/.test(l) && !ehNenhum(l));
+    ata = antes + "Combinados/ações:" + (reais.length ? linhas.filter((l) => !ehNenhum(l)).join("\n") : linhas.join("\n"));
+  }
   return { assunto, ata };
 }
 

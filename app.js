@@ -10,7 +10,7 @@ if ("serviceWorker" in navigator) {
 
 // Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
 // CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
-const VERSAO_APP = "v45";
+const VERSAO_APP = "v46";
 document.getElementById("versao-app").textContent = VERSAO_APP;
 
 // Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano
@@ -1277,16 +1277,31 @@ document.getElementById("btn-transcrever-audio").addEventListener("click", async
   }
 
   if (!audioBlobAlinhamento) return;
+
+  // Separar vozes usa um modelo bem mais lento (~27s de espera por minuto de
+  // áudio, contra ~4s do normal) e o limite do servidor é 5 min — por isso
+  // só vale pra áudios curtos, e fica desligado por padrão.
+  const separarVozes = document.getElementById("chk-separar-vozes").checked;
+  if (separarVozes) {
+    const duracao = document.getElementById("audio-preview").duration;
+    if (Number.isFinite(duracao) && duracao > 9 * 60) {
+      status.textContent = `Separar vozes só funciona em áudios de até ~9 min (este tem ${Math.round(duracao / 60)} min). Desmarque a opção ou use um áudio mais curto.`;
+      return;
+    }
+  }
+
   btn.disabled = true;
   status.textContent = "Enviando áudio...";
   try {
     const audioUrl = await garantirAudioEnviado();
 
-    status.textContent = "Transcrevendo com IA (pode levar um minuto)...";
+    status.textContent = separarVozes
+      ? "Transcrevendo e separando vozes (demora ~30s por minuto de áudio — mantenha o app aberto e a tela ligada)..."
+      : "Transcrevendo com IA (pode levar um minuto)...";
     const resp = await fetch("/api/transcrever", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ audioUrl }),
+      body: JSON.stringify({ audioUrl, identificarVozes: separarVozes }),
     });
     const textoResp = await resp.text();
     let data;
@@ -1307,7 +1322,20 @@ document.getElementById("btn-transcrever-audio").addEventListener("click", async
     if (assuntoTexto && !document.getElementById("alin-assunto").value.trim()) {
       document.getElementById("alin-assunto").value = assuntoTexto;
     }
-    const ataTexto = typeof data.ata === "string" ? data.ata : JSON.stringify(data.ata, null, 2);
+    let ataTexto = typeof data.ata === "string" ? data.ata : JSON.stringify(data.ata, null, 2);
+    if (separarVozes && typeof data.transcricao === "string" && data.transcricao.trim()) {
+      // Junta falas seguidas da mesma pessoa e troca "[A]" por "Pessoa A:".
+      const linhas = [];
+      let ultimo = null;
+      data.transcricao.split("\n").forEach((linha) => {
+        const m = linha.match(/^\[([^\]]+)\]\s*(.*)$/);
+        if (!m) return linhas.push(linha);
+        if (m[1] === ultimo) linhas[linhas.length - 1] += " " + m[2].trim();
+        else linhas.push(`Pessoa ${m[1]}: ${m[2].trim()}`);
+        ultimo = m[1];
+      });
+      ataTexto += "\n\nTranscrição com vozes separadas:\n" + linhas.join("\n");
+    }
     const obsAtual = document.getElementById("alin-observacao").value.trim();
     document.getElementById("alin-observacao").value = obsAtual ? obsAtual + "\n\n" + ataTexto : ataTexto;
     status.textContent = "Transcrição pronta — revise o texto antes de salvar.";

@@ -263,6 +263,9 @@
         <button id="btn-usar-audio-arquivo" type="button" class="btn secondary small">📂 Usar áudio do computador</button>
         <input type="file" id="input-audio-arquivo" accept="audio/*" class="hidden">
         <button id="btn-transcrever-audio" type="button" class="btn secondary small hidden">✨ Transcrever com IA</button>
+        <label class="muted" style="font-size:0.8rem;display:flex;align-items:center;gap:0.35rem;">
+          <input type="checkbox" id="chk-separar-vozes"> Separar vozes (mais lento, só áudios até ~9 min)
+        </label>
         <span id="gravacao-status" class="muted"></span>
       </div>
       <audio id="audio-preview" class="hidden" controls></audio>

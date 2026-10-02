@@ -510,7 +510,7 @@ async function loadAvaliacaoSetor() {
           <td>${formatDate(a.criado_em.slice(0, 10))}</td>
           <td>${a.empresa ? escapeHtml(a.empresa) : '<span class="muted">—</span>'}</td>
           <td>${renderEstrelas(a.nota)}</td>
-          <td>${a.comentario ? escapeHtml(a.comentario) : '<span class="muted">—</span>'}</td>
+          <td class="comentario-cliente">${a.comentario ? escapeHtml(a.comentario) : '<span class="muted">—</span>'}</td>
           <td>${souAdmin() ? `<button class="link-btn danger" data-id="${a.id}">excluir</button>` : ""}</td>
         </tr>`
           )

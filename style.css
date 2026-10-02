@@ -77,6 +77,13 @@ body {
   font-size: 1.3rem;
 }
 
+.versao-app {
+  font-size: 0.65rem;
+  font-weight: normal;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
 .topbar-title-row {
   display: flex;
   align-items: center;

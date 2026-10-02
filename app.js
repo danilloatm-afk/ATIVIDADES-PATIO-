@@ -8,6 +8,18 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+// Mostra a versão atual (lida direto do sw.js, sem precisar manter um
+// número duplicado em dois arquivos) — ajuda a confirmar se o celular/PC já
+// pegou a atualização mais recente, sem precisar abrir o sw.js na mão.
+fetch("sw.js", { cache: "no-store" })
+  .then((r) => r.text())
+  .then((texto) => {
+    const versao = texto.match(/CACHE_VERSION\s*=\s*"([^"]+)"/)?.[1];
+    const el = document.getElementById("versao-app");
+    if (versao && el) el.textContent = versao;
+  })
+  .catch(() => {});
+
 const STATUS_LABEL = { aberto: "Aberto", andamento: "Em andamento", concluido: "Concluído" };
 const PRIORIDADE_LABEL = { baixa: "Baixa", media: "Média", alta: "Alta" };
 

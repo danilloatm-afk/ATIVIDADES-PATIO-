@@ -782,6 +782,10 @@ let mimeTypeGravacaoAtual = "";
 // curtas e o fluxo de "usar áudio do computador" continuam exatamente como
 // antes (segmentosFinalizados fica vazio nesses casos).
 const DURACAO_SEGMENTO_MS = 25 * 60 * 1000;
+// Segmentos menores que isso são lixo (gravador parou sem capturar nada) e
+// não entram na lista — evita mandar arquivo vazio/corrompido pra IA.
+const TAMANHO_MINIMO_SEGMENTO_BYTES = 2000;
+let wakeLockGravacao = null;
 let segmentosGravados = [];
 let segmentosFinalizados = [];
 let gravacaoSegmentadaAtiva = false;
@@ -910,7 +914,9 @@ async function enviarSegmento(blob) {
   }
   const tipoAudio = blobFinal.type || "audio/webm";
   const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;
-  const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, blobFinal, { contentType: tipoAudio });
+  // Envia os bytes em vez do Blob direto: Blobs de MediaRecorder no Safari/iOS
+  // às vezes falham no upload com "Load failed".
+  const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, await blobFinal.arrayBuffer(), { contentType: tipoAudio });
   if (erroUpload) throw new Error("Erro ao enviar segmento: " + erroUpload.message);
   return `${SUPABASE_URL}/storage/v1/object/public/op_audios/${nomeArquivo}`;
 }
@@ -925,7 +931,12 @@ async function transcreverSegmentos(segmentos, status) {
   let transcricaoCompleta = "";
   for (let i = 0; i < segmentos.length; i++) {
     status.textContent = `Enviando parte ${i + 1} de ${segmentos.length}...`;
-    const audioUrl = await enviarSegmento(segmentos[i]);
+    let audioUrl;
+    try {
+      audioUrl = await enviarSegmento(segmentos[i]);
+    } catch (err) {
+      throw new Error(`Parte ${i + 1} (${Math.round(segmentos[i].size / 1024)}KB, ${segmentos[i].type || "tipo desconhecido"}): ${err.message}`);
+    }
     status.textContent = `Transcrevendo parte ${i + 1} de ${segmentos.length} (pode levar um tempo)...`;
     const resp = await fetch("/api/transcrever", {
       method: "POST",
@@ -1024,7 +1035,7 @@ async function garantirAudioEnviado() {
   }
   const tipoAudio = audioBlobAlinhamento.type || mimeTypeGravacaoAtual || "audio/webm";
   const nomeArquivo = `${crypto.randomUUID()}.${extensaoPara(tipoAudio)}`;
-  const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, audioBlobAlinhamento, { contentType: tipoAudio });
+  const { error: erroUpload } = await db.storage.from("op_audios").upload(nomeArquivo, await audioBlobAlinhamento.arrayBuffer(), { contentType: tipoAudio });
   if (erroUpload) throw new Error("Erro ao enviar áudio: " + erroUpload.message);
   audioPathAlinhamento = nomeArquivo;
   return `${SUPABASE_URL}/storage/v1/object/public/op_audios/${nomeArquivo}`;
@@ -1042,11 +1053,24 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
     segmentosGravados = [];
     segmentosFinalizados = [];
     gravacaoSegmentadaAtiva = true;
+    // Só reinicia o gravador quando o corte foi pedido pelo nosso timer. Uma
+    // parada "do nada" (ex: iPhone interrompendo o microfone) encerra a
+    // gravação em vez de ser confundida com corte e gerar partes vazias.
+    let corteProgramado = false;
+
+    // Mantém a tela ligada durante a gravação (no iPhone, tela apagando
+    // interrompe o microfone). Se o navegador não suportar, segue sem.
+    try {
+      if (navigator.wakeLock) wakeLockGravacao = await navigator.wakeLock.request("screen");
+    } catch {
+      wakeLockGravacao = null;
+    }
 
     // Cria (e, internamente, recria a cada corte de segmento) o gravador
     // sobre o mesmo stream de microfone, sem o usuário perceber nada.
     function iniciarSegmento() {
-      audioChunksAlinhamento = [];
+      const chunks = [];
+      audioChunksAlinhamento = chunks;
       mimeTypeGravacaoAtual = mimeTypeSuportadoGravacao();
       mediaRecorderAlinhamento = mimeTypeGravacaoAtual
         ? new MediaRecorder(stream, { mimeType: mimeTypeGravacaoAtual, audioBitsPerSecond: BITRATE_GRAVACAO })
@@ -1055,22 +1079,46 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
       // disponível depois de criado o MediaRecorder, mesmo sem passar opções.
       mimeTypeGravacaoAtual = mediaRecorderAlinhamento.mimeType || mimeTypeGravacaoAtual || "audio/webm";
       mediaRecorderAlinhamento.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksAlinhamento.push(e.data);
+        if (e.data.size > 0) chunks.push(e.data);
       };
+      let tratado = false;
       mediaRecorderAlinhamento.onstop = async () => {
-        const segmento = new Blob(audioChunksAlinhamento, { type: mimeTypeGravacaoAtual });
-        segmentosGravados.push(segmento);
+        // O Safari/iOS pode disparar 'stop' mais de uma vez pro mesmo gravador.
+        if (tratado) return;
+        tratado = true;
 
-        if (gravacaoSegmentadaAtiva) {
-          // Parada interna (corte por tempo) — segue gravando sem o usuário notar.
-          iniciarSegmento();
-          mediaRecorderAlinhamento.start();
-          return;
+        const segmento = new Blob(chunks, { type: mimeTypeGravacaoAtual });
+        if (segmento.size >= TAMANHO_MINIMO_SEGMENTO_BYTES) segmentosGravados.push(segmento);
+
+        if (gravacaoSegmentadaAtiva && corteProgramado) {
+          // Corte por tempo — segue gravando sem o usuário notar.
+          corteProgramado = false;
+          try {
+            iniciarSegmento();
+            mediaRecorderAlinhamento.start();
+            return;
+          } catch {
+            // Não deu pra reiniciar (microfone indisponível): encerra com o que já tem.
+          }
         }
 
-        // Parada final (usuário clicou "Parar").
+        // Encerramento: usuário clicou "Parar" ou o navegador parou sozinho.
+        gravacaoSegmentadaAtiva = false;
+        clearInterval(segmentoRestartInterval);
+        clearInterval(gravacaoTimerInterval);
+        document.getElementById("btn-parar-gravacao").classList.add("hidden");
+        document.getElementById("btn-gravar-audio").classList.remove("hidden");
         stream.getTracks().forEach((t) => t.stop());
+        if (wakeLockGravacao) {
+          wakeLockGravacao.release().catch(() => {});
+          wakeLockGravacao = null;
+        }
         const preview = document.getElementById("audio-preview");
+
+        if (segmentosGravados.length === 0) {
+          status.textContent = "Nenhum áudio foi capturado. No iPhone, mantenha a tela ligada e o app aberto durante toda a gravação.";
+          return;
+        }
         document.getElementById("btn-transcrever-audio").classList.remove("hidden");
 
         if (segmentosGravados.length > 1) {
@@ -1081,7 +1129,8 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
           segmentosFinalizados = segmentosGravados.slice();
           preview.src = URL.createObjectURL(segmentosGravados[segmentosGravados.length - 1]);
           preview.classList.remove("hidden");
-          status.textContent = `Gravação longa dividida em ${segmentosGravados.length} partes automaticamente. Clique em "Transcrever com IA" para processar todas, ou salve o alinhamento direto (sem áudio anexado).`;
+          const tamanhos = segmentosGravados.map((s) => Math.round(s.size / 1024) + "KB").join(", ");
+          status.textContent = `Gravação longa dividida em ${segmentosGravados.length} partes automaticamente (${tamanhos}). Clique em "Transcrever com IA" para processar todas, ou salve o alinhamento direto (sem áudio anexado).`;
           return;
         }
 
@@ -1110,6 +1159,7 @@ document.getElementById("btn-gravar-audio").addEventListener("click", async () =
     // grande demais pro tempo que a IA tem pra transcrever.
     segmentoRestartInterval = setInterval(() => {
       if (mediaRecorderAlinhamento && mediaRecorderAlinhamento.state === "recording") {
+        corteProgramado = true;
         mediaRecorderAlinhamento.stop();
       }
     }, DURACAO_SEGMENTO_MS);

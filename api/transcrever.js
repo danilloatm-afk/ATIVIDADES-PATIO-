@@ -105,22 +105,39 @@ module.exports = async (req, res) => {
     const tipoBase = tipoAudio.split(";")[0].trim();
     const extensao = extensaoPorTipo[tipoBase] || (audioUrl.match(/\.(\w+)$/)?.[1] ?? "webm");
 
-    const formData = new FormData();
-    formData.append("file", audioBlob, `audio.${extensao}`);
     // gpt-4o-transcribe-diarize: mesmo preço por minuto do whisper-1, mas já
     // identifica quem fala (rotulado como "A", "B", "C"...), o que antes só
-    // dava pra conseguir gravando cada pessoa separadamente.
-    formData.append("model", "gpt-4o-transcribe-diarize");
-    formData.append("response_format", "diarized_json");
-    formData.append("chunking_strategy", "auto");
-    formData.append("language", "pt");
+    // dava pra conseguir gravando cada pessoa separadamente. Se esse modelo
+    // (mais novo) recusar o arquivo, tenta o whisper-1 clássico antes de
+    // desistir — sem identificação de voz, mas com a transcrição garantida.
+    function pedirTranscricao(modelo) {
+      const formData = new FormData();
+      formData.append("file", audioBlob, `audio.${extensao}`);
+      formData.append("model", modelo);
+      formData.append("language", "pt");
+      if (modelo === "gpt-4o-transcribe-diarize") {
+        formData.append("response_format", "diarized_json");
+        formData.append("chunking_strategy", "auto");
+      }
+      return fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: formData,
+      });
+    }
 
-    const transcricaoResp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: formData,
-    });
-    if (!transcricaoResp.ok) throw new Error("Erro ao transcrever o áudio: " + (await transcricaoResp.text()));
+    let transcricaoResp = await pedirTranscricao("gpt-4o-transcribe-diarize");
+    if (!transcricaoResp.ok) {
+      const erroDiarize = await transcricaoResp.text();
+      transcricaoResp = await pedirTranscricao("whisper-1");
+      if (!transcricaoResp.ok) {
+        throw new Error(
+          `Erro ao transcrever o áudio (${Math.round(audioBuffer.byteLength / 1024)}KB, ${tipoAudio}): ` +
+            (await transcricaoResp.text()) +
+            ` | modelo com identificação de voz: ${erroDiarize}`
+        );
+      }
+    }
     const transcricaoData = await transcricaoResp.json();
     // Monta o texto com marcação de interlocutor por segmento ("[A] fala...")
     // quando a resposta vem diarizada; se por algum motivo vier sem

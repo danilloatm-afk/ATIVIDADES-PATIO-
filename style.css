@@ -613,14 +613,29 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
     --text-muted: #3f4750;
     --border: #d0d4d9;
   }
-  body.imprimir-alinhamento * { visibility: hidden; }
-  body.imprimir-alinhamento #imprimir-alinhamento-area,
-  body.imprimir-alinhamento #imprimir-alinhamento-area * { visibility: visible; }
-  body.imprimir-alinhamento #imprimir-alinhamento-area {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
+  /* Tira do layout (display:none, e não só visibility:hidden, que ainda
+     ocupa espaço e gerava várias folhas em branco) tudo que não é a área da
+     ata nem um "pai" dela. */
+  body.imprimir-alinhamento *:not(#imprimir-alinhamento-area):not(#imprimir-alinhamento-area *):not(:has(#imprimir-alinhamento-area)) {
+    display: none !important;
+  }
+  html:has(body.imprimir-alinhamento),
+  body.imprimir-alinhamento {
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0;
+    padding: 0;
+    overflow: visible !important;
+    background: #fff;
+  }
+  body.imprimir-alinhamento main,
+  body.imprimir-alinhamento #app-shell,
+  body.imprimir-alinhamento .tab-content {
+    margin: 0;
+    padding: 0;
+    max-width: none;
+    height: auto !important;
+    overflow: visible !important;
   }
   body.imprimir-alinhamento #imprimir-alinhamento-conteudo h2 { margin: 0 0 0.25rem; }
   body.imprimir-alinhamento #imprimir-alinhamento-conteudo p.muted { margin: 0 0 1.25rem; color: #555; font-size: 0.85rem; }

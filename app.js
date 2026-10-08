@@ -10,7 +10,7 @@ if ("serviceWorker" in navigator) {
 
 // Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
 // CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
-const VERSAO_APP = "v48";
+const VERSAO_APP = "v49";
 document.getElementById("versao-app").textContent = VERSAO_APP;
 
 // Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano

@@ -331,6 +331,9 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.8rem; }
 .link-btn.danger { color: var(--atrasado); }
 
 .maq-local-input { width: 180px; margin-right: 0.4rem; }
+.maq-subtitulo { margin-top: 2rem; }
+.hor-input { width: 110px; }
+.hor-total td { background: var(--bg); }
 #tbl-maquinas tr.inativo { opacity: 0.5; }
 .maq-hist td { white-space: normal; background: var(--bg); }
 .maq-hist-lista { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; }

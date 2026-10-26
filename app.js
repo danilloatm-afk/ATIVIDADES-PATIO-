@@ -10,7 +10,7 @@ if ("serviceWorker" in navigator) {
 
 // Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
 // CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
-const VERSAO_APP = "v50";
+const VERSAO_APP = "v51";
 document.getElementById("versao-app").textContent = VERSAO_APP;
 
 // Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano
@@ -1531,6 +1531,7 @@ async function loadMaquinas() {
     if (error) throw new Error(error.message);
     maquinasCache = data;
     renderMaquinas();
+    loadHorimetros();
   } catch (e) {
     const faltaTabela = /op_maquinas/.test(e.message);
     tbody.innerHTML = `<tr><td colspan="6">${
@@ -1640,6 +1641,124 @@ async function alternarHistoricoMaquina(tr) {
 }
 
 document.getElementById("fil-maq-local").addEventListener("change", renderMaquinas);
+
+// ---------- horímetro (início/final do mês, enviado pelo operador) ----------
+function linkHorimetro(token) {
+  return new URL(`horimetro.html?m=${token}`, location.href).href;
+}
+
+function mesAnteriorISO(mesISO) {
+  const [ano, mes] = mesISO.split("-").map(Number);
+  const d = new Date(ano, mes - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function fmtHoras(n) {
+  return Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+async function loadHorimetros() {
+  const tbody = document.querySelector("#tbl-horimetro tbody");
+  const inputMes = document.getElementById("hor-mes-painel");
+  if (!inputMes.value) inputMes.value = hojeISO().slice(0, 7);
+  const mes = inputMes.value + "-01";
+  const anterior = mesAnteriorISO(mes);
+  const ativas = maquinasCache.filter((m) => m.ativo);
+  if (!ativas.length) {
+    tbody.innerHTML = '<tr><td colspan="5">Nenhuma máquina ativa.</td></tr>';
+    return;
+  }
+  try {
+    const { data, error } = await comTimeout(
+      db.from("op_horimetros").select("*").in("maquina_id", ativas.map((m) => m.id)).in("mes", [mes, anterior])
+    );
+    if (error) throw new Error(error.message);
+    const leitura = (maquinaId, mesRef, tipo) => data.find((h) => h.maquina_id === maquinaId && h.mes === mesRef && h.tipo === tipo);
+
+    let totalHoras = 0;
+    const linhas = ativas.map((m) => {
+      const ini = leitura(m.id, mes, "inicio");
+      const fim = leitura(m.id, mes, "fim");
+      const fimAnterior = leitura(m.id, anterior, "fim");
+      const inicioEfetivo = ini ? ini.valor : fimAnterior ? fimAnterior.valor : null;
+      const horas = fim && inicioEfetivo != null ? fim.valor - inicioEfetivo : null;
+      if (horas != null) totalHoras += horas;
+      const dica = (h) => (h ? `Enviado por ${h.operador} em ${new Date(h.registrado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}` : "");
+      return `
+      <tr data-id="${m.id}" data-token="${m.horimetro_token}">
+        <td><strong>${escapeHtml(m.codigo)}</strong> <span class="muted">${escapeHtml(m.modelo)}</span></td>
+        <td>
+          <input type="number" class="hor-input" data-tipo="inicio" step="0.1" min="0" inputmode="decimal" value="${ini ? ini.valor : ""}" placeholder="${fimAnterior ? fmtHoras(fimAnterior.valor) : "—"}" title="${escapeHtml(dica(ini) || (fimAnterior ? "Usando o final do mês anterior" : ""))}">
+        </td>
+        <td>
+          <input type="number" class="hor-input" data-tipo="fim" step="0.1" min="0" inputmode="decimal" value="${fim ? fim.valor : ""}" placeholder="—" title="${escapeHtml(dica(fim))}">
+        </td>
+        <td>${horas != null ? `<strong>${fmtHoras(horas)} h</strong>` : `<span class="muted">${fim ? "falta o início" : ini || fimAnterior ? "falta o final" : "sem leituras"}</span>`}</td>
+        <td class="acoes">
+          <button class="link-btn" data-acao="copiar-link-hor">copiar link</button>
+          <a class="link-btn" target="_blank" rel="noopener" href="${escapeHtml(
+            linkWhatsapp("", `Informe o horímetro da máquina ${m.codigo} (${m.modelo}) por este link: ${linkHorimetro(m.horimetro_token)}`)
+          )}">whatsapp</a>
+        </td>
+      </tr>`;
+    });
+    linhas.push(`<tr class="hor-total"><td colspan="3"><strong>Total do mês</strong></td><td colspan="2"><strong>${fmtHoras(totalHoras)} h</strong></td></tr>`);
+    tbody.innerHTML = linhas.join("");
+
+    tbody.querySelectorAll("tr[data-id]").forEach((tr) => {
+      const maquinaId = Number(tr.dataset.id);
+      tr.querySelectorAll(".hor-input").forEach((input) => {
+        input.addEventListener("change", () => salvarHorimetroPainel(maquinaId, mes, input.dataset.tipo, input.value, tr));
+      });
+      const btn = tr.querySelector('[data-acao="copiar-link-hor"]');
+      btn.addEventListener("click", async () => {
+        const link = linkHorimetro(tr.dataset.token);
+        try {
+          await navigator.clipboard.writeText(link);
+          const original = btn.textContent;
+          btn.textContent = "link copiado!";
+          setTimeout(() => (btn.textContent = original), 2000);
+        } catch {
+          prompt("Copie o link do horímetro:", link);
+        }
+      });
+    });
+  } catch (e) {
+    const faltaTabela = /op_horimetros|horimetro/.test(e.message);
+    tbody.innerHTML = `<tr><td colspan="5">${
+      faltaTabela ? "Falta rodar o SQL supabase-migration-maquinas.sql no Supabase." : "Erro: " + escapeHtml(e.message)
+    }</td></tr>`;
+  }
+}
+
+// Correção feita direto no painel (quando o operador digitou errado).
+async function salvarHorimetroPainel(maquinaId, mes, tipo, texto, tr) {
+  const valor = parseFloat(texto);
+  if (Number.isNaN(valor) || valor < 0) return loadHorimetros();
+  const outroTipo = tipo === "inicio" ? "fim" : "inicio";
+  const outroTexto = tr.querySelector(`.hor-input[data-tipo="${outroTipo}"]`).value;
+  const outro = outroTexto === "" ? null : parseFloat(outroTexto);
+  if (outro != null && !Number.isNaN(outro)) {
+    const ini = tipo === "inicio" ? valor : outro;
+    const fim = tipo === "fim" ? valor : outro;
+    if (fim < ini) {
+      alert("O horímetro do final não pode ser menor que o do início.");
+      return loadHorimetros();
+    }
+    if (fim - ini > 744) {
+      alert("A diferença passa de 744 horas (um mês inteiro). Confira o número digitado.");
+      return loadHorimetros();
+    }
+  }
+  const nome = (meuPerfil && meuPerfil.nome) || "Painel";
+  const { error } = await db
+    .from("op_horimetros")
+    .upsert({ maquina_id: maquinaId, mes, tipo, valor, operador: nome, registrado_em: new Date().toISOString() }, { onConflict: "maquina_id,mes,tipo" });
+  if (error) alert("Erro ao salvar horímetro: " + error.message);
+  loadHorimetros();
+}
+
+document.getElementById("hor-mes-painel").addEventListener("change", loadHorimetros);
 
 document.getElementById("form-maquina").addEventListener("submit", async (e) => {
   e.preventDefault();

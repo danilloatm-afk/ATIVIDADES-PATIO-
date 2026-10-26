@@ -50,6 +50,7 @@
     <button class="tab-btn" data-tab="nova">Nova atividade</button>
     <button class="tab-btn" data-tab="atividades">Atividades</button>
     <button class="tab-btn" data-tab="alinhamentos">Alinhamentos</button>
+    <button class="tab-btn" data-tab="maquinas">Máquinas</button>
     <button class="tab-btn" data-tab="config">Configurações</button>
   </nav>
 </header>
@@ -299,6 +300,37 @@
 
     <div id="imprimir-alinhamento-area">
       <div id="imprimir-alinhamento-conteudo"></div>
+    </div>
+  </section>
+
+  <!-- MÁQUINAS -->
+  <section id="tab-maquinas" class="tab-content">
+    <h2>Máquinas</h2>
+    <form id="form-maquina" class="form-card inline-form">
+      <input type="text" id="maq-codigo" placeholder="Equipamento (ex.: TT-031)" required>
+      <input type="text" id="maq-modelo" placeholder="Modelo">
+      <input type="text" id="maq-prestador" placeholder="Prestador">
+      <input type="text" id="maq-local" placeholder="Onde está trabalhando (opcional)" list="maq-locais">
+      <button type="submit" class="btn primary">Adicionar máquina</button>
+    </form>
+    <datalist id="maq-locais"></datalist>
+    <div class="filters">
+      <select id="fil-maq-local"><option value="">Todos os locais</option></select>
+    </div>
+    <div class="table-wrap">
+      <table id="tbl-maquinas">
+        <thead>
+          <tr>
+            <th>Equipamento</th>
+            <th>Modelo</th>
+            <th>Prestador</th>
+            <th>Onde está trabalhando</th>
+            <th>Desde</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
   </section>
 

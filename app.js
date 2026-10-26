@@ -10,7 +10,7 @@ if ("serviceWorker" in navigator) {
 
 // Versão do código que está rodando AGORA nesta tela. Precisa ser igual ao
 // CACHE_VERSION do sw.js a cada publicação (os dois são atualizados juntos).
-const VERSAO_APP = "v49";
+const VERSAO_APP = "v50";
 document.getElementById("versao-app").textContent = VERSAO_APP;
 
 // Auto-atualização: o celular costuma ficar com o app aberto/em segundo plano
@@ -252,14 +252,31 @@ async function loadSetores() {
     ? ativos.map((s) => `<option value="${s.id}">${escapeHtml(s.nome)}</option>`).join("")
     : '<option value="">Nenhum setor cadastrado</option>';
   sel.value = setorSelecionadoId;
+  atualizarAbaMaquinas();
+}
+
+// A aba Máquinas só existe para o setor de Terraplanagem.
+function setorEhTerraplanagem() {
+  const setor = setoresCache.find((s) => String(s.id) === String(setorSelecionadoId));
+  return !!setor && /terrapl/i.test(setor.nome);
+}
+
+function atualizarAbaMaquinas() {
+  const botao = document.querySelector('.tab-btn[data-tab="maquinas"]');
+  const mostrar = setorEhTerraplanagem();
+  botao.classList.toggle("hidden", !mostrar);
+  // Se a aba estava aberta e o setor mudou, volta pro Painel.
+  if (!mostrar && botao.classList.contains("active")) document.querySelector('.tab-btn[data-tab="painel"]').click();
 }
 
 document.getElementById("setor-select").addEventListener("change", async (e) => {
   setorSelecionadoId = e.target.value;
   localStorage.setItem(LS_SETOR_SELECIONADO, setorSelecionadoId);
+  atualizarAbaMaquinas();
   await refreshCadastros();
   loadPainel();
   if (document.getElementById("tab-atividades").classList.contains("active")) loadAtividades();
+  if (document.getElementById("tab-maquinas").classList.contains("active")) loadMaquinas();
 });
 
 function renderListaSetores() {
@@ -327,6 +344,7 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
     if (btn.dataset.tab === "painel") loadPainel();
     if (btn.dataset.tab === "atividades") loadAtividades();
     if (btn.dataset.tab === "alinhamentos") loadAlinhamentos();
+    if (btn.dataset.tab === "maquinas") loadMaquinas();
   });
 });
 
@@ -1489,6 +1507,161 @@ async function loadAlinhamentos() {
     tbody.innerHTML = `<tr><td colspan="5">Erro: ${e.message}</td></tr>`;
   }
 }
+
+// ---------- máquinas (só setor de Terraplanagem) ----------
+let maquinasCache = [];
+
+function textoDesde(iso) {
+  if (!iso) return "—";
+  const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  return `${new Date(iso).toLocaleDateString("pt-BR")} · ${dias <= 0 ? "hoje" : dias === 1 ? "1 dia" : dias + " dias"}`;
+}
+
+async function loadMaquinas() {
+  const tbody = document.querySelector("#tbl-maquinas tbody");
+  if (!setorSelecionadoId) {
+    tbody.innerHTML = '<tr><td colspan="6">Nenhum setor selecionado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '<tr><td colspan="6">Carregando…</td></tr>';
+  try {
+    const { data, error } = await comTimeout(
+      db.from("op_maquinas").select("*").eq("setor_id", setorSelecionadoId).order("ativo", { ascending: false }).order("codigo")
+    );
+    if (error) throw new Error(error.message);
+    maquinasCache = data;
+    renderMaquinas();
+  } catch (e) {
+    const faltaTabela = /op_maquinas/.test(e.message);
+    tbody.innerHTML = `<tr><td colspan="6">${
+      faltaTabela ? "Falta rodar o SQL supabase-migration-maquinas.sql no Supabase." : "Erro: " + escapeHtml(e.message)
+    }</td></tr>`;
+  }
+}
+
+function renderMaquinas() {
+  const tbody = document.querySelector("#tbl-maquinas tbody");
+  const filtroSel = document.getElementById("fil-maq-local");
+  const filtroAtual = filtroSel.value;
+
+  const locais = [...new Set(maquinasCache.map((m) => m.local_atual).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  document.getElementById("maq-locais").innerHTML = locais.map((l) => `<option value="${escapeHtml(l)}"></option>`).join("");
+  filtroSel.innerHTML =
+    '<option value="">Todos os locais</option>' + locais.map((l) => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join("");
+  filtroSel.value = locais.includes(filtroAtual) ? filtroAtual : "";
+
+  const lista = maquinasCache.filter((m) => !filtroSel.value || m.local_atual === filtroSel.value);
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="6">Nenhuma máquina cadastrada.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = lista
+    .map(
+      (m) => `
+    <tr class="${m.ativo ? "" : "inativo"}" data-id="${m.id}">
+      <td><strong>${escapeHtml(m.codigo)}</strong></td>
+      <td>${escapeHtml(m.modelo)}</td>
+      <td>${escapeHtml(m.prestador)}</td>
+      <td>
+        <input type="text" class="maq-local-input" list="maq-locais" value="${escapeHtml(m.local_atual)}" placeholder="Informar local" ${m.ativo ? "" : "disabled"}>
+        <button class="btn small secondary" data-acao="mover" ${m.ativo ? "" : "disabled"}>Mover</button>
+      </td>
+      <td>${textoDesde(m.local_desde)}</td>
+      <td class="acoes">
+        <button class="link-btn" data-acao="historico">histórico</button>
+        <button class="link-btn" data-acao="toggle" data-ativo="${m.ativo ? 1 : 0}">${m.ativo ? "desativar" : "reativar"}</button>
+      </td>
+    </tr>`
+    )
+    .join("");
+
+  tbody.querySelectorAll("tr[data-id]").forEach((tr) => {
+    const id = tr.dataset.id;
+    const input = tr.querySelector(".maq-local-input");
+    tr.querySelector('[data-acao="mover"]').addEventListener("click", () => moverMaquina(id, input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") moverMaquina(id, input.value);
+    });
+    tr.querySelector('[data-acao="historico"]').addEventListener("click", () => alternarHistoricoMaquina(tr));
+    tr.querySelector('[data-acao="toggle"]').addEventListener("click", async (e) => {
+      const { error } = await db.from("op_maquinas").update({ ativo: e.currentTarget.dataset.ativo !== "1" }).eq("id", id);
+      if (error) return alert("Erro ao atualizar máquina: " + error.message);
+      loadMaquinas();
+    });
+  });
+}
+
+// Registra a mudança de local: atualiza o local atual e guarda uma linha no
+// histórico (para saber onde a máquina esteve e por quanto tempo).
+async function moverMaquina(id, novoLocal) {
+  novoLocal = novoLocal.trim();
+  const maquina = maquinasCache.find((m) => String(m.id) === String(id));
+  if (!maquina || !novoLocal || novoLocal === maquina.local_atual) return;
+  const agora = new Date().toISOString();
+  const { error } = await db.from("op_maquinas").update({ local_atual: novoLocal, local_desde: agora }).eq("id", id);
+  if (error) return alert("Erro ao atualizar o local: " + error.message);
+  const { error: errHist } = await db.from("op_maquinas_historico").insert({ maquina_id: id, local: novoLocal, em: agora });
+  if (errHist) alert("Local atualizado, mas o histórico não foi salvo: " + errHist.message);
+  loadMaquinas();
+}
+
+async function alternarHistoricoMaquina(tr) {
+  const proxima = tr.nextElementSibling;
+  if (proxima && proxima.classList.contains("maq-hist")) {
+    proxima.remove();
+    return;
+  }
+  const linha = document.createElement("tr");
+  linha.className = "maq-hist";
+  linha.innerHTML = '<td colspan="6">Carregando histórico…</td>';
+  tr.after(linha);
+  const { data, error } = await db
+    .from("op_maquinas_historico")
+    .select("*")
+    .eq("maquina_id", tr.dataset.id)
+    .order("em", { ascending: false })
+    .limit(50);
+  if (error) {
+    linha.innerHTML = `<td colspan="6">Erro: ${escapeHtml(error.message)}</td>`;
+    return;
+  }
+  if (!data.length) {
+    linha.innerHTML = '<td colspan="6">Nenhuma mudança de local registrada ainda.</td>';
+    return;
+  }
+  // Cada entrada vale até a próxima; a mais recente vale até agora.
+  const itens = data.map((h, i) => {
+    const fim = i === 0 ? Date.now() : new Date(data[i - 1].em).getTime();
+    const dias = Math.max(0, Math.floor((fim - new Date(h.em).getTime()) / 86400000));
+    const dataTxt = new Date(h.em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    return `<li>${dataTxt} — <strong>${escapeHtml(h.local)}</strong> <span class="muted">(${dias === 0 ? "menos de 1 dia" : dias === 1 ? "1 dia" : dias + " dias"}${i === 0 ? ", até agora" : ""})</span></li>`;
+  });
+  linha.innerHTML = `<td colspan="6"><ul class="maq-hist-lista">${itens.join("")}</ul></td>`;
+}
+
+document.getElementById("fil-maq-local").addEventListener("change", renderMaquinas);
+
+document.getElementById("form-maquina").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const codigo = document.getElementById("maq-codigo").value.trim();
+  const modelo = document.getElementById("maq-modelo").value.trim();
+  const prestador = document.getElementById("maq-prestador").value.trim();
+  const local = document.getElementById("maq-local").value.trim();
+  if (!codigo || !setorSelecionadoId) return;
+  const agora = new Date().toISOString();
+  const payload = { setor_id: Number(setorSelecionadoId), codigo, modelo, prestador };
+  if (local) Object.assign(payload, { local_atual: local, local_desde: agora });
+  const { data, error } = await db.from("op_maquinas").insert(payload).select().single();
+  if (error) {
+    return alert(error.code === "23505" ? "Já existe uma máquina com esse código neste setor." : "Erro ao adicionar máquina: " + error.message);
+  }
+  if (local) {
+    const { error: errHist } = await db.from("op_maquinas_historico").insert({ maquina_id: data.id, local, em: agora });
+    if (errHist) alert("Máquina adicionada, mas o histórico não foi salvo: " + errHist.message);
+  }
+  e.target.reset();
+  loadMaquinas();
+});
 
 // ---------- cadastros: funcionarios ----------
 document.getElementById("form-funcionario").addEventListener("submit", async (e) => {
